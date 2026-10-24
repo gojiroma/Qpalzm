@@ -363,15 +363,113 @@
   const bSky = gl.createBuffer();
   let skyN = 0, rain = [], snow = [], bolt = null, boltAt = 0, flash = 0, lastSky = 0;
   const frac = x => x - Math.floor(x);
+  // ---- monthly motif (wireframe, behind the keyboard). ?m=1..12 previews a month ----
+  function drawMotif(month, cx, cy, S, t, poly, arc) {
+    const TAU = Math.PI * 2, frac1 = x => x - Math.floor(x);
+    const P = (x, y) => [cx + x * S, cy + y * S];
+    const L = (pts, a, close) => poly(pts.map(p => P(p[0], p[1])), a == null ? .7 : a, close);
+    const E = (x, y, rx, ry, a, rot, n) => {
+      const o = [], c = Math.cos(rot || 0), s = Math.sin(rot || 0);
+      for (let i = 0; i < (n || 28); i++) { const q = i / (n || 28) * TAU, px = Math.cos(q) * rx, py = Math.sin(q) * ry; o.push([x + px * c - py * s, y + px * s + py * c]); }
+      L(o, a, true);
+    };
+    const C = (x, y, r, a) => E(x, y, r, r, a, 0, 24);
+    const rotP = (pts, x, y, s, rot) => pts.map(p => [x + (p[0] * Math.cos(rot) - p[1] * Math.sin(rot)) * s, y + (p[0] * Math.sin(rot) + p[1] * Math.cos(rot)) * s]);
+    const petal = (x, y, s, rot, a) => L(rotP([[0, -1], [.6, -.45], [.4, .9], [0, .55], [-.4, .9], [-.6, -.45]], x, y, s, rot), a, true);
+    const star = (x, y, r, rot, a, k) => { const o = []; for (let i = 0; i < 2 * k; i++) { const q = i * Math.PI / k + rot, rr = i % 2 ? r * .45 : r; o.push([x + Math.cos(q) * rr, y + Math.sin(q) * rr]); } L(o, a, true); };
+    const cross = (x, y, z, a) => { L([[x - z, y], [x + z, y]], a); L([[x, y - z], [x, y + z]], a); };
+    const flower = (x, y, s, rot) => { for (let i = 0; i < 5; i++) { const q = i * TAU / 5 + rot; C(x + Math.cos(q) * s * .55, y + Math.sin(q) * s * .55, s * .38, .7); } C(x, y, s * .14, .8); for (let i = 0; i < 5; i++) { const q = i * TAU / 5 + rot + .3; L([[x, y], [x + Math.cos(q) * s * .3, y + Math.sin(q) * s * .3]], .6); } };
+    const snow = (n, sp) => { for (let i = 0; i < n; i++) { const x = (frac1(i * .618) * 2.8 - 1.4) + Math.sin(t * .8 + i) * .06, y = frac1(t * sp + i * .137) * 2.4 - 1.2; cross(x, y, .035, .55); } };
+    switch (month) {
+      case 1: // Mt. Fuji + first sunrise
+        L([[-1.3, .75], [-.45, -.35], [-.28, -.5], [.28, -.5], [.45, -.35], [1.3, .75]]);
+        L([[-.45, -.35], [-.3, -.18], [-.15, -.32], [0, -.12], [.15, -.32], [.3, -.18], [.45, -.35]], .6);
+        L([[-1.5, .75], [1.5, .75]], .5); C(.1, -.95, .16, .8);
+        for (let i = 0; i < 8; i++) { const q = i * TAU / 8 + t * .1; L([[.1 + Math.cos(q) * .24, -.95 + Math.sin(q) * .24], [.1 + Math.cos(q) * .36, -.95 + Math.sin(q) * .36]], .5); }
+        L([[-1.1, -.2], [-.6, -.2]], .4); L([[.7, .05], [1.2, .05]], .4); break;
+      case 2: // plum blossoms
+        L([[-1.4, .9], [-.8, .5], [-.3, .3], [.2, -.1], [.8, -.35]], .55); L([[-.3, .3], [-.5, -.1], [-.4, -.5]], .45);
+        flower(-.4, -.5, .38, .2); flower(.45, -.1, .3, .9); flower(-.05, .15, .22, 1.7); flower(.85, -.4, .2, .4); break;
+      case 3: // hishimochi (diamond rice cakes) + peach petals
+        [[-.62, .5], [.0, .55], [.62, .6]].forEach(([d, y, w], k) => { const yy = [.5, 0, -.5][k], ww = [.75, .75, .75][k]; L([[0, yy - .32], [ww, yy], [0, yy + .32], [-ww, yy]], .7, true); });
+        L([[-.75, -.2], [0, .15]], .0); for (let i = 0; i < 6; i++) petal(-1.1 + (i % 3) * .08, -.6 + i * .25 + Math.sin(t + i) * .03, .06, t * .5 + i, .5); break;
+      case 4: // cherry blossoms + falling petals
+        flower(-.5, -.3, .5, t * .05); flower(.55, .1, .36, 1 + t * .04);
+        for (let i = 0; i < 22; i++) petal(frac1(i * .381) * 2.8 - 1.4 + Math.sin(t * .7 + i) * .12, frac1(t * .07 + i * .137) * 2.4 - 1.2, .06, t * 1.2 + i, .6); break;
+      case 5: // carp streamers
+        L([[-1.1, -1], [-1.1, 1]], .6); C(-1.1, -1.06, .06, .8);
+        [[-.25, 1], [.5, .7]].forEach(([oy, sc], k) => {
+          const top = [], bot = [], n = 12;
+          for (let i = 0; i <= n; i++) { const u = i / n, x = -1.0 + 1.15 * u * sc, w = .26 * sc * (1 - .6 * u), yc = oy + Math.sin(t * 2.2 - u * 3 + k) * .09 * u; top.push([x, yc - w]); bot.push([x, yc + w]); if (i % 3 === 1) L([[x, yc - w], [x, yc + w]], .3); }
+          L(top); L(bot); L([top[0], bot[0]], .6);
+          const a = top[n], b = bot[n]; L([a, [a[0] + .25 * sc, a[1] - .12 * sc], [b[0] + .25 * sc, b[1] + .12 * sc], b], .65);
+          C(top[1][0] + .02, oy - .03 * sc + Math.sin(t * 2.2 + k) * .003, .025 * sc, .8); L([[-1.1, -.9], top[0]], .35);
+        }); break;
+      case 6: { // umbrella in the rain
+        const ox = 0, oy = -.1, n = 20;
+        const top = []; for (let i = 0; i <= n; i++) { const q = Math.PI + (i / n) * Math.PI; top.push([ox + Math.cos(q) * .95, oy + Math.sin(q) * .75]); }
+        L(top); for (let i = 0; i < 5; i++) { const a = top[i * 4], b = top[(i + 1) * 4]; const m = [(a[0] + b[0]) / 2, a[1] + .12]; L([a, m, b], .6); }
+        for (let i = 1; i < 5; i++) L([[ox, oy - .75], top[i * 4]], .4);
+        L([[ox, oy - .75], [ox, .8], [ox - .08, .92], [ox - .22, .9]], .65);
+        for (let i = 0; i < 16; i++) { const x = frac1(i * .618) * 2.8 - 1.4, y = frac1(t * .9 + i * .137) * 2.4 - 1.2; L([[x, y], [x - .02, y + .1]], .45); } break; }
+      case 7: // tanabata: bamboo, tanzaku, stars
+        L([[.1, 1.1], [.15, -1.1]], .6); for (let i = 0; i < 5; i++) L([[.09 + i * .005, .8 - i * .45], [.17 + i * .005, .8 - i * .45]], .4);
+        for (let i = 0; i < 6; i++) { const y = -1 + i * .35, d = i % 2 ? 1 : -1; L([[.14, y], [.14 + d * (.5 + (i % 3) * .1), y - .22 + Math.sin(t * 1.2 + i) * .02]], .35); }
+        [[-.35, -.1, 0], [.5, .25, 1], [-.6, .4, 2], [.65, -.5, 3]].forEach(([x, y, k]) => { const s = Math.sin(t * 1.1 + k) * .06; const pts = rotP([[-.07, 0], [.07, 0], [.07, .4], [-.07, .4]], x, y, 1, s); L(pts, .65, true); L([[x, y - .22], [x, y]], .4); });
+        star(-1, -.7, .1, t * .2, .75, 4); star(1, -.5, .1, -t * .2, .75, 4);
+        for (let i = 0; i < 16; i++) { const k = i / 15; cross(-1 + 2 * k, -.7 + .2 * k + Math.sin(k * 6) * .08, .02, .35 + .25 * Math.sin(t * 2 + i)); } break;
+      case 8: // fireworks
+        [[-.8, -.3, 0], [.05, -.65, .33], [.85, -.15, .66]].forEach(([x, y, off]) => {
+          const ph = frac1(t * .22 + off), r = ph * .75, a = Math.max(0, 1 - ph) * .9;
+          for (let i = 0; i < 18; i++) { const q = i * TAU / 18 + off; L([[x + Math.cos(q) * r * .7, y + Math.sin(q) * r * .7], [x + Math.cos(q) * r, y + Math.sin(q) * r]], a); }
+          if (ph > .2) for (let i = 0; i < 9; i++) { const q = i * TAU / 9 + .3, r2 = r * .45; cross(x + Math.cos(q) * r2, y + Math.sin(q) * r2 + ph * .15, .025, a * .8); }
+          if (ph < .15) L([[x, 1.1], [x, y + (1.1 - y) * (1 - ph / .15)]], .6);
+        }); break;
+      case 9: { // moon rabbit pounding mochi
+        C(0, -.1, .9, .75); E(-.35, -.35, .1, .06, .25, 0, 14); E(.4, .15, .14, .08, .2, 0, 14);
+        const hop = Math.sin(t * 3) * .06;
+        E(.12, -.18, .24, .17, .75, -.3); E(.34, -.4 + hop * .3, .11, .1, .75, 0);
+        E(.3, -.66, .045, .2, .75, -.25, 14); E(.42, -.64, .045, .2, .75, .2, 14); C(.38, -.42, .016, .9);
+        L([[-.28, .05], [-.2, .22], [.1, .22], [.18, .05]], .75, true); L([[-.3, .05], [.2, .05]], .7);
+        const sw = Math.sin(t * 3) * .5; L([[.28, -.25], [.28 - Math.sin(sw) * .4, -.25 - Math.cos(sw) * .4 - .2]], .75); E(.28 - Math.sin(sw) * .4, -.25 - Math.cos(sw) * .4 - .2, .07, .04, .7, sw, 10);
+        for (let k = 0; k < 6; k++) { const x = -1.3 + k * .14, h = .75 + (k % 3) * .12, sway = Math.sin(t * .9 + k) * .05; L([[x, 1.1], [x + .05 + sway * .5, 1.1 - h * .55], [x + .1 + sway, 1.1 - h]], .5); for (let j = 0; j < 4; j++) L([[x + .1 + sway, 1.1 - h + j * .05], [x + .16 + sway, 1.1 - h + j * .05 - .06]], .4); } break; }
+      case 10: { // Halloween: jack-o'-lantern + bats
+        const f = .75 + .25 * Math.abs(Math.sin(t * 5.3) * Math.sin(t * 2.1));
+        E(0, .15, .85, .65, .75); E(-.4, .15, .45, .63, .35); E(.4, .15, .45, .63, .35);
+        L([[-.1, -.5], [-.06, -.75], [.14, -.82], [.1, -.5]], .65);
+        L([[-.45, -.1], [-.15, -.1], [-.3, -.4]], .85 * f, true); L([[.45, -.1], [.15, -.1], [.3, -.4]], .85 * f, true); L([[-.07, .1], [.07, .1], [0, 0]], .85 * f, true);
+        L([[-.55, .3], [-.4, .5], [-.28, .35], [-.14, .52], [0, .36], [.14, .52], [.28, .35], [.4, .5], [.55, .3]], .85 * f);
+        for (let k = 0; k < 3; k++) { const bx = ((t * .08 * (1 + k * .3) + k * .37) % 1) * 3.2 - 1.6, by = -.75 + k * .22 + Math.sin(t * .9 + k) * .08, fl = 1 + Math.sin(t * 9 + k) * .45; L(rotP([[-.3, 0], [-.15, -.1 * fl], [0, .02], [.15, -.1 * fl], [.3, 0], [.2, .06], [.1, 0], [0, .12], [-.1, 0], [-.2, .06]], bx, by, .6, 0), .7, true); }
+        break; }
+      case 11: // maple leaves
+        { const mp = (x, y, s, rot, a) => { const o = []; for (let i = 0; i < 10; i++) { const q = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? .5 : 1; o.push([Math.cos(q) * r * (i === 0 ? 1.1 : 1), Math.sin(q) * r]); } L(rotP(o, x, y, s, rot), a, true); L(rotP([[0, .5], [0, 1.1]], x, y, s, rot), a); L(rotP([[0, .5], [0, -.7]], x, y, s, rot), a * .5); };
+          mp(0, -.1, .75, Math.sin(t * .5) * .08, .8);
+          for (let i = 0; i < 12; i++) mp(frac1(i * .618) * 2.8 - 1.4 + Math.sin(t * .6 + i) * .15, frac1(t * .06 + i * .137) * 2.4 - 1.2, .09, t * 1.1 + i * 1.3, .6); } break;
+      case 12: // Christmas tree + snow
+        L([[0, -.9], [-.38, -.35], [.38, -.35]], .75, true); L([[0, -.62], [-.55, .1], [.55, .1]], .75, true); L([[0, -.2], [-.75, .68], [.75, .68]], .75, true);
+        L([[-.1, .68], [-.1, .95], [.1, .95], [.1, .68]], .7, true); star(0, -1.02, .13, t * .4 - Math.PI / 2, .9, 5);
+        L([[-.3, -.4], [-.1, -.32], [.1, -.4], [.3, -.32]], .35); L([[-.48, .05], [-.2, .15], [.2, .05], [.48, .15]], .35); L([[-.62, .55], [-.3, .66], [.3, .55], [.62, .66]], .35);
+        [[-.18, -.12], [.2, -.1], [-.38, .38], [.1, .42], [.42, .5], [-.05, -.5], [-.55, .6], [.3, .2]].forEach(([x, y], i) => C(x, y, .035, .3 + .65 * Math.abs(Math.sin(t * 2 + i))));
+        [[-1, .62, .3, .3], [.82, .7, .22, .22]].forEach(([x, y, w, h]) => { L([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], .65, true); L([[x + w / 2, y], [x + w / 2, y + h]], .5); L([[x, y + h / 2], [x + w, y + h / 2]], .5); });
+        snow(26, .06); break;
+    }
+  }
   function buildSky(now) {
     skyN = 0;
-    if (!wx) return;
     const dt = Math.min(.05, Math.max(0, (now - lastSky) / 1000)); lastSky = now;
-    const t = now / 1000, fade = Math.min(1, (now - wxAt) / 1500);
+    const t = now / 1000; let fade = wx ? Math.min(1, (now - wxAt) / 1500) : 0;
     const V = [];
     const seg = (x1, y1, x2, y2, a) => { V.push(x1, y1, a * fade, x2, y2, a * fade); };
     const poly = (p, a, close) => { for (let i = 0; i < p.length - 1; i++) seg(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1], a); if (close) seg(p[p.length - 1][0], p[p.length - 1][1], p[0][0], p[0][1], a); };
     const arc = (cx, cy, r, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return o; };
+    const flush = () => { skyN = V.length / 3; gl.bindBuffer(gl.ARRAY_BUFFER, bSky); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(V), gl.DYNAMIC_DRAW); };
+    {   // monthly motif
+      const keep = fade; fade = Math.min(1, Math.max(0, (now - start - 300) / 3000)) * .5;
+      const month = +PARAMS.get("m") || new Date(nowMs()).getMonth() + 1;
+      drawMotif(month, W * .5, H * .42, Math.min(W * .42, H * .42), t, poly, arc);
+      fade = keep;
+    }
+    if (!wx) { flush(); return; }
     const tNow = nowMs(), day = tNow >= wx.rise && tNow <= wx.set;
     let p;
     if (day) p = (tNow - wx.rise) / (wx.set - wx.rise);
@@ -456,9 +554,7 @@
       }
       if (flash > 0) { poly(bolt, Math.min(1, flash * 1.6), false); flash -= dt * 2.5; }
     }
-    skyN = V.length / 3;
-    gl.bindBuffer(gl.ARRAY_BUFFER, bSky);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(V), gl.DYNAMIC_DRAW);
+    flush();
   }
   function drawSky(glow) {
     if (!skyN) return;
@@ -510,9 +606,9 @@
     if (Math.abs(tyaw - yaw) + Math.abs(tpitch - pitch) + Math.abs(tpanX - panX) + Math.abs(tpanY - panY) > .02 ||
         Math.abs(tzoom - zoom) > .0005) active = true;
     // weather keeps animating; throttle when nothing else moves
-    const animated = wx && (wx.kind === "rain" || wx.kind === "thunder" || wx.kind === "snow");
+    const animated = true;
     if (active || now - last >= (animated ? 33 : 100)) { last = now; draw(now); }
-    if (active || wx) raf = requestAnimationFrame(frame);
+    raf = requestAnimationFrame(frame);
   }
   function wake() { if (!raf) raf = requestAnimationFrame(frame); }
 
