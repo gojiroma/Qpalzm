@@ -39,6 +39,17 @@
   #cal .bar { height: 7px; border: 1px solid #00ff66; margin: 1px 0 5px; }
   #cal .bar i { display: block; height: 100%; background: rgba(0, 255, 102, .75); box-shadow: 0 0 6px rgba(0, 255, 102, .7); }
   @media (max-width: 640px) { #cal { top: auto; bottom: 14px; right: auto; left: 20px; width: 170px; } }
+  #fx {
+    position: fixed; right: 20px; bottom: 14px; width: 170px; pointer-events: none; opacity: 0; transition: opacity 1.2s;
+    color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em; text-align: right; white-space: nowrap;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none; font-variant-numeric: tabular-nums;
+  }
+  #fx.on { opacity: 1; }
+  #fx .big { font-size: 22px; line-height: 1.2; }
+  #fx .dn { color: #ff6a4f; text-shadow: 0 0 6px rgba(255, 106, 79, .6); }
+  #fx .dim { opacity: .55; }
+  #fx svg { display: block; width: 100%; height: 46px; margin-top: 4px; overflow: visible; }
+  @media (max-width: 640px) { #fx { width: 140px; right: 14px; } #cal { left: 14px; } }
   #tip {
     position: fixed; left: 0; top: 0; max-width: 260px; padding: 8px 10px; opacity: 0;
     pointer-events: none; background: rgba(0, 0, 0, .85); border: 1px solid #00ff66;
@@ -57,6 +68,7 @@
 <canvas id="gl"></canvas>
 <pre id="term"></pre>
 <div id="cal"></div>
+<div id="fx"></div>
 <div id="tip"></div>
 <div id="search"><div id="sbox"><label id="sbar"><span>&rsaquo;</span><input id="sq" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="host"></label><div id="slist"></div><div id="smeta"></div></div></div>
 <script>
@@ -641,6 +653,45 @@
   }
   calTick(); setInterval(calTick, 500);
   setTimeout(() => cal.classList.add("on"), 1200);
+
+  // ---- USD/JPY: latest rate + 30-day sparkline (Frankfurter = ECB daily reference rates; not real time) ----
+  const fx = document.getElementById("fx");
+  function fxRender(series) {      // series: [[date, rate], ...] oldest -> newest
+    if (!series || series.length < 2) return;
+    const pts = series.slice(-30), last = pts[pts.length - 1], prev = pts[pts.length - 2];
+    const lo = Math.min(...pts.map(p => p[1])), hi = Math.max(...pts.map(p => p[1])), span = hi - lo || 1;
+    const X = i => (i / (pts.length - 1)) * 170, Y = v => 42 - ((v - lo) / span) * 38;
+    const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+    const d = last[1] - prev[1], pct = d / prev[1] * 100, down = d < 0;
+    fx.innerHTML =
+      `<div class="dim">USD/JPY ${last[0].slice(5)}</div>` +
+      `<div class="big">¥${last[1].toFixed(2)}</div>` +
+      `<div class="${down ? "dn" : ""}">${down ? "▼" : "▲"} ${Math.abs(d).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>` +
+      `<svg viewBox="0 0 170 46" preserveAspectRatio="none"><polygon points="0,46 ${line} 170,46" fill="rgba(0,255,102,.12)"/>` +
+      `<polyline points="${line}" fill="none" stroke="#00ff66" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
+      `<circle cx="170" cy="${Y(last[1]).toFixed(1)}" r="2.5" fill="#00ff66"/></svg>` +
+      `<div class="dim">${pts.length}D ${lo.toFixed(1)}-${hi.toFixed(1)}</div>`;
+    fx.classList.add("on");
+  }
+  async function fxLoad() {
+    try { const c = JSON.parse(localStorage.getItem("fx") || "null"); if (c) fxRender(c); } catch {}
+    try {
+      let series;
+      if (PARAMS.get("fx") === "demo") {
+        let v = 150; series = Array.from({ length: 30 }, (_, i) => [`2026-10-${String(i % 28 + 1).padStart(2, "0")}`, (v += Math.sin(i * 1.3) * .8 + .15)]);
+      } else {
+        const iso = t => new Date(t).toISOString().slice(0, 10), now = Date.now();
+        const r = await fetch(`https://api.frankfurter.dev/v1/${iso(now - 50 * 864e5)}..${iso(now)}?base=USD&symbols=JPY`);
+        if (!r.ok) throw 0;
+        const j = await r.json();
+        series = Object.keys(j.rates).sort().map(k => [k, j.rates[k].JPY]).filter(p => isFinite(p[1]));
+      }
+      if (series.length < 2) throw 0;
+      fxRender(series);
+      try { localStorage.setItem("fx", JSON.stringify(series)); } catch {}
+    } catch {}
+  }
+  fxLoad(); setInterval(fxLoad, 30 * 60e3);
 
   // ---- host search (ported from gojiroma/go): "/" opens, one match opens the site ----
   const sEl = document.getElementById("search"), sq = document.getElementById("sq"),
