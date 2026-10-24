@@ -13,16 +13,10 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
-  #hint {
-    position: fixed; bottom: 14px; width: 100%; text-align: center;
-    color: rgba(0, 255, 102, .45); font: 12px monospace; letter-spacing: .2em;
-    pointer-events: none;
-  }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
-<div id="hint">PRESS ANY LETTER &rarr; X.POET.BLUE · DRAG TO ORBIT</div>
 <script>
 (() => {
   const U = 56, KH = 22, BH = 8, GAP = 4, PAD = 14, DOMAIN = "poet.blue";
@@ -95,7 +89,7 @@
   keys.forEach(k => {
     box(k.x, k.y, k.w, k.h, BH, BH + KH, k.idx);
     if (!k.label) return;
-    const s = 5, gx = k.x + k.w / 2 - s, gy = k.y + k.h / 2 - 2 * s, z = BH + KH + .3;
+    const s = 6.5, gx = k.x + k.w / 2 - s, gy = k.y + k.h / 2 - 2 * s, z = BH + KH + .3;
     F[k.label].forEach(st => {
       for (let i = 0; i < st.length - 1; i++)
         L([gx + st[i][0] * s, gy + st[i][1] * s, z], [gx + st[i + 1][0] * s, gy + st[i + 1][1] * s, z], k.idx + 1000);
@@ -190,7 +184,7 @@
     const d = .12;
     yaw += (tyaw - yaw) * d; pitch += (tpitch - pitch) * d; zoom += (tzoom - zoom) * d;
     panX += (tpanX - panX) * d; panY += (tpanY - panY) * d;
-    cam = { rx: (lerp(0, 52, k) + pitch) * Math.PI / 180, rz: (lerp(-70, -14, k) + yaw) * Math.PI / 180,
+    cam = { rx: (lerp(0, 30, k) + pitch) * Math.PI / 180, rz: (lerp(-70, -8, k) + yaw) * Math.PI / 180,
             sc: lerp(.35, 1, k) * fit * zoom, tz: lerp(-400, 0, k), f: lerp(260, 1500, k), a: Math.min(1, t * 3) };
     return t < 1;
   }
