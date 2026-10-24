@@ -1990,10 +1990,20 @@ const RADIO = [
   ["nagasaki", "NHK長崎放送局", "JOAG 長崎"], ["kagoshima", "NHK鹿児島放送局", "JOHG 鹿児島"], ["miyazaki", "NHK宮崎放送局", "JOMG 宮崎"],
   ["oita", "NHK大分放送局", "JOIP 大分"], ["saga", "NHK佐賀放送局", "JOSP 佐賀"], ["okinawa", "NHK沖縄放送局", "JOAP 沖縄"],
 ].forEach(([slug, name, alias]) => RADIO.push([name, "https://www.nhk.or.jp/" + slug + "/", alias + " 日本放送協会"]));
-RADIO.forEach(([name, url, alias]) => hosts.push({
-  host: new URL(url).host, name, tags: ["radio"], n: 1, to: url,
-  key: (name + " " + alias + " " + new URL(url).host + " radio ラジオ").toLowerCase(),
-}));
+// Shown like every other host (host + path, no "www."); station names/call signs stay searchable.
+// A station whose site root is already in the list just gets the @radio tag.
+RADIO.forEach(([label, url, alias]) => {
+  const u = new URL(url), bare = u.host.replace(/^www\./, ""), path = u.pathname.replace(/\/$/, "");
+  const extra = (label + " " + alias + " radio ラジオ").toLowerCase();
+  const same = !path && hosts.find(h => h.host.replace(/^www\./, "") === bare);
+  if (same) {
+    if (!same.tags.includes("radio")) same.tags = [...same.tags, "radio"];
+    same.key += " " + extra;
+    return;
+  }
+  const name = bare + path;
+  hosts.push({ host: name, name, tags: ["radio"], n: 1, to: url, key: (name + " " + extra).toLowerCase() });
+});
 hosts.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 window.GO_HOSTS = hosts;
 })();
