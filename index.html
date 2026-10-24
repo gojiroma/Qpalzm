@@ -181,14 +181,14 @@
   // ---- state ----
   const ease = t => 1 - Math.pow(1 - t, 4);
   const lerp = (a, b, t) => a + (b - a) * t;
-  const start = performance.now(), DUR = 3200;
+  const start = performance.now() + 700, DUR = 3200;   // text first, keyboard follows
   let yaw = 0, pitch = 0, zoom = 1, panX = 0, panY = 0;
   let tyaw = 0, tpitch = 0, tzoom = 1, tpanX = 0, tpanY = 0;
   const dz = new Float32Array(80), tdz = new Float32Array(80), hl = new Float32Array(80), thl = new Float32Array(80);
   let cam = { rx: 0, rz: 0, sc: 1, tz: 0, f: 1500 };
 
   function updateCam(now) {
-    const t = Math.min(1, (now - start) / DUR), k = ease(t);
+    const t = Math.max(0, Math.min(1, (now - start) / DUR)), k = ease(t);
     const fit = Math.min(1, W / (totalW + 80)) * Math.min(1, H / 560);
     const d = .12;
     yaw += (tyaw - yaw) * d; pitch += (tpitch - pitch) * d; zoom += (tzoom - zoom) * d;
@@ -354,7 +354,6 @@
   const lineEls = lineFns.map(() => { const d = document.createElement("div"); term.appendChild(d); return d; });
   const cursor = document.createElement("i");
   (async () => {
-    await new Promise(r => setTimeout(r, 900));
     for (let i = 0; i < lineFns.length; i++) {
       const text = lineFns[i](), node = document.createTextNode("");
       lineEls[i].append(node, cursor);
@@ -365,6 +364,7 @@
       lineEls[i].textNode = node;
       await new Promise(r => setTimeout(r, 180));
     }
+    cursor.remove();
     setInterval(() => { lineEls.forEach((el, i) => { if (i) el.textNode.data = lineFns[i](); }); }, 1000);
   })();
 
