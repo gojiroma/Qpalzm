@@ -31,7 +31,7 @@
   #cal {
     position: fixed; right: 20px; top: 16px; margin: 0; pointer-events: none; width: 190px;
     color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em;
-    text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none; opacity: 0; transition: opacity 1.2s;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none; opacity: 0; font-variant-numeric: tabular-nums; transition: opacity 1.2s;
   }
   #cal.on { opacity: 1; }
   #cal .row { display: flex; justify-content: space-between; }
@@ -637,9 +637,9 @@
     cal.innerHTML =
       `<div class="row"><span>NEXT MONTH</span><span>${left(nextM)} DAYS</span></div>` +
       `<div class="row"><span>NEXT YEAR</span><span>${left(nextY)} DAYS</span></div><div class="gap"></div>` +
-      bars.map(([k, f]) => `<div class="row"><span>${k}</span><span>${(f * 100).toFixed(1)}%</span></div><div class="bar"><i style="width:${(f * 100).toFixed(2)}%"></i></div>`).join("");
+      bars.map(([k, f]) => `<div class="row"><span>${k}</span><span>${(f * 100).toFixed(3)}%</span></div><div class="bar"><i style="width:${(f * 100).toFixed(2)}%"></i></div>`).join("");
   }
-  calTick(); setInterval(calTick, 1000);
+  calTick(); setInterval(calTick, 500);
   setTimeout(() => cal.classList.add("on"), 1200);
 
   // ---- host search (ported from gojiroma/go): "/" opens, one match opens the site ----
