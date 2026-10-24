@@ -11,39 +11,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <style>
-  :root { --g: #00ff66; --u: 56px; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  #stage {
-    position: fixed; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    perspective: 4000px;
-    touch-action: none; cursor: grab;
-  }
-  #board {
-    position: relative;
-    transform-style: preserve-3d;
-    will-change: transform;
-  }
-  .box { position: absolute; transform-style: preserve-3d; }
-  .face {
-    position: absolute; left: 0; top: 0;
-    box-sizing: border-box;
-    border: 1px solid var(--g);
-    background: rgba(0, 255, 102, .02);
-    backface-visibility: visible;
-    filter: drop-shadow(0 0 3px rgba(0, 255, 102, .6));
-    display: flex; align-items: center; justify-content: center;
-    color: var(--g);
-    font: 600 calc(var(--u) * .36) / 1 "SF Mono", Menlo, Consolas, monospace;
-    text-transform: uppercase;
-    user-select: none;
-  }
-  .key { cursor: pointer; transition: transform .12s ease-out; }
-  .key .top { transition: background .12s, box-shadow .12s; }
-  .key:hover .top { background: rgba(0, 255, 102, .14); }
-  .key.down { transform: translateZ(-14px); }
-  .key.down .face { background: rgba(0, 255, 102, .35); }
-  .base .face { border-color: rgba(0, 255, 102, .55); }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
   #hint {
     position: fixed; bottom: 14px; width: 100%; text-align: center;
     color: rgba(0, 255, 102, .45); font: 12px monospace; letter-spacing: .2em;
@@ -52,16 +21,45 @@
 </style>
 </head>
 <body>
-<div id="stage"><div id="board"></div></div>
+<canvas id="gl"></canvas>
 <div id="hint">PRESS ANY LETTER &rarr; X.POET.BLUE · DRAG TO ORBIT</div>
-
 <script>
 (() => {
-  const U = 56, H = 22, GAP = 4, DOMAIN = "poet.blue";
-  const board = document.getElementById("board");
-  const stage = document.getElementById("stage");
+  const U = 56, KH = 22, BH = 8, GAP = 4, PAD = 14, DOMAIN = "poet.blue";
+  const canvas = document.getElementById("gl");
+  const gl = canvas.getContext("webgl", { antialias: true, alpha: false, powerPreference: "high-performance" });
 
-  // [label, width in units]; single letters are active
+  // ---- stroke font (2 x 4 grid, y down) ----
+  const F = {
+    a:[[[0,4],[1,0],[2,4]],[[.5,2.5],[1.5,2.5]]],
+    b:[[[0,0],[0,4],[1.4,4],[2,3.4],[2,2.7],[1.4,2.1],[0,2.1]],[[1.4,2.1],[2,1.5],[2,.6],[1.4,0],[0,0]]],
+    c:[[[2,.6],[1.4,0],[.6,0],[0,.6],[0,3.4],[.6,4],[1.4,4],[2,3.4]]],
+    d:[[[0,0],[0,4],[1.2,4],[2,3.2],[2,.8],[1.2,0],[0,0]]],
+    e:[[[2,0],[0,0],[0,4],[2,4]],[[0,2],[1.5,2]]],
+    f:[[[2,0],[0,0],[0,4]],[[0,2],[1.5,2]]],
+    g:[[[2,.6],[1.4,0],[.6,0],[0,.6],[0,3.4],[.6,4],[1.4,4],[2,3.4],[2,2],[1,2]]],
+    h:[[[0,0],[0,4]],[[2,0],[2,4]],[[0,2],[2,2]]],
+    i:[[[.3,0],[1.7,0]],[[1,0],[1,4]],[[.3,4],[1.7,4]]],
+    j:[[[2,0],[2,3.4],[1.4,4],[.6,4],[0,3.4]]],
+    k:[[[0,0],[0,4]],[[2,0],[0,2.2]],[[.6,1.6],[2,4]]],
+    l:[[[0,0],[0,4],[2,4]]],
+    m:[[[0,4],[0,0],[1,2],[2,0],[2,4]]],
+    n:[[[0,4],[0,0],[2,4],[2,0]]],
+    o:[[[.6,0],[1.4,0],[2,.6],[2,3.4],[1.4,4],[.6,4],[0,3.4],[0,.6],[.6,0]]],
+    p:[[[0,4],[0,0],[1.4,0],[2,.6],[2,1.5],[1.4,2.1],[0,2.1]]],
+    q:[[[.6,0],[1.4,0],[2,.6],[2,3.4],[1.4,4],[.6,4],[0,3.4],[0,.6],[.6,0]],[[1.2,2.8],[2,4]]],
+    r:[[[0,4],[0,0],[1.4,0],[2,.6],[2,1.5],[1.4,2.1],[0,2.1]],[[.9,2.1],[2,4]]],
+    s:[[[2,.6],[1.4,0],[.6,0],[0,.6],[0,1.4],[.6,2],[1.4,2],[2,2.6],[2,3.4],[1.4,4],[.6,4],[0,3.4]]],
+    t:[[[0,0],[2,0]],[[1,0],[1,4]]],
+    u:[[[0,0],[0,3.4],[.6,4],[1.4,4],[2,3.4],[2,0]]],
+    v:[[[0,0],[1,4],[2,0]]],
+    w:[[[0,0],[.5,4],[1,1.5],[1.5,4],[2,0]]],
+    x:[[[0,0],[2,4]],[[2,0],[0,4]]],
+    y:[[[0,0],[1,2],[2,0]],[[1,2],[1,4]]],
+    z:[[[0,0],[2,0],[0,4],[2,4]]],
+  };
+
+  // ---- layout ----
   const rows = [
     [..."`1234567890-=".split("").map(c => [c, 1]), ["", 2]],
     [["", 1.5], ..."qwertyuiop[]".split("").map(c => [c, 1]), ["", 1.5]],
@@ -69,146 +67,282 @@
     [["", 2.25], ..."zxcvbnm,./".split("").map(c => [c, 1]), ["", 2.75]],
     [["", 1.25], ["", 1.25], ["", 1.25], ["", 6.25], ["", 1.25], ["", 1.25], ["", 1.25], ["", 1.25]],
   ];
-  const PAD = 14;
-  const totalW = 15 * U + PAD * 2;
-  const totalH = rows.length * U + PAD * 2;
-  board.style.width = totalW + "px";
-  board.style.height = totalH + "px";
-
-  function face(parent, cls, w, h, tf, label) {
-    const f = document.createElement("div");
-    f.className = "face " + cls;
-    f.style.width = w + "px";
-    f.style.height = h + "px";
-    f.style.transform = tf;
-    if (label) f.textContent = label;
-    parent.appendChild(f);
-    return f;
-  }
-
-  function makeKey(x, y, w, h, d, label) {
-    const b = document.createElement("div");
-    b.className = "box";
-    b.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;`;
-    face(b, "top", w, h, `translateZ(${d}px)`, label);
-    // front (bottom edge in screen) / back (top edge)
-    const fr = face(b, "side", w, d, `translateY(${h - d / 2}px) translateZ(${d / 2}px) rotateX(-90deg)`);
-    const bk = face(b, "side", w, d, `translateY(${-d / 2}px) translateZ(${d / 2}px) rotateX(-90deg)`);
-    // left / right
-    const lf = face(b, "side", d, h, `translateX(${-d / 2}px) translateZ(${d / 2}px) rotateY(-90deg)`);
-    const rt = face(b, "side", d, h, `translateX(${w - d / 2}px) translateZ(${d / 2}px) rotateY(-90deg)`);
-    return b;
-  }
-
-  // base slab
-  const base = makeKey(0, 0, totalW, totalH, 8, "");
-  base.classList.add("base");
-  board.appendChild(base);
-
-  const keyEls = {};
+  const totalW = 15 * U + PAD * 2, totalH = rows.length * U + PAD * 2;
+  const keys = [];            // {x,y,w,h,label,idx}
   rows.forEach((row, ri) => {
     let x = PAD;
     row.forEach(([label, wu]) => {
-      const w = wu * U - GAP;
-      const el = makeKey(x + GAP / 2, PAD + ri * U + GAP / 2, w, U - GAP, H, /^[a-z]$/.test(label) ? label : "");
-      el.classList.add("key");
-      el.style.transform = "translateZ(8px)";
-      if (/^[a-z]$/.test(label)) {
-        el.dataset.k = label;
-        keyEls[label] = el;
-        el.addEventListener("click", () => { if (!moved) go(label); });
-      }
-      board.appendChild(el);
+      keys.push({ x: x + GAP / 2 - totalW / 2, y: PAD + ri * U + GAP / 2 - totalH / 2,
+                  w: wu * U - GAP, h: U - GAP, label: /^[a-z]$/.test(label) ? label : "", idx: keys.length });
       x += wu * U;
     });
   });
+  const BASE = keys.length;   // slot for the base slab
+  const byLetter = {};
+  keys.forEach(k => { if (k.label) byLetter[k.label] = k; });
 
-  // keys live above base; .down overrides transform
-  const style = document.createElement("style");
-  style.textContent = `.key{transform:translateZ(8px)} .key.down{transform:translateZ(-6px)}`;
-  document.head.appendChild(style);
-
-  let leaving = false;
-  function go(ch) {
-    if (leaving) return;
-    leaving = true;
-    const el = keyEls[ch];
-    if (el) el.classList.add("down");
-    setTimeout(() => { location.href = `https://${ch}.${DOMAIN}`; }, 220);
+  // ---- geometry: [x,y,z,keyIdx] ----
+  const lines = [], tris = [];
+  const L = (a, b, k) => lines.push(a[0], a[1], a[2], k, b[0], b[1], b[2], k);
+  function box(x, y, w, h, z0, z1, k) {
+    const c = z => [[x, y, z], [x + w, y, z], [x + w, y + h, z], [x, y + h, z]];
+    const lo = c(z0), hi = c(z1);
+    for (let i = 0; i < 4; i++) { L(lo[i], lo[(i + 1) % 4], k); L(hi[i], hi[(i + 1) % 4], k); L(lo[i], hi[i], k); }
+    const t = (a, b, c2) => tris.push(...a, k, ...b, k, ...c2, k);
+    t(hi[0], hi[1], hi[2]); t(hi[0], hi[2], hi[3]);
   }
-  addEventListener("keydown", e => {
-    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-    if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); go(e.key.toLowerCase()); }
+  box(-totalW / 2, -totalH / 2, totalW, totalH, 0, BH, BASE);
+  keys.forEach(k => {
+    box(k.x, k.y, k.w, k.h, BH, BH + KH, k.idx);
+    if (!k.label) return;
+    const s = 5, gx = k.x + k.w / 2 - s, gy = k.y + k.h / 2 - 2 * s, z = BH + KH + .3;
+    F[k.label].forEach(st => {
+      for (let i = 0; i < st.length - 1; i++)
+        L([gx + st[i][0] * s, gy + st[i][1] * s, z], [gx + st[i + 1][0] * s, gy + st[i + 1][1] * s, z], k.idx + 1000);
+    });
   });
-  addEventListener("pageshow", () => {
-    leaving = false;
-    Object.values(keyEls).forEach(el => el.classList.remove("down"));
-  });
+  const lineData = new Float32Array(lines), triData = new Float32Array(tris);
 
-  // ---- camera: intro perspective shift, then mouse parallax ----
+  // ---- GL setup ----
+  const VS = `
+    attribute vec3 a_pos; attribute float a_key;
+    uniform float u_rx, u_rz, u_sc, u_tz, u_f; uniform vec2 u_pan, u_half;
+    uniform float u_dz[80], u_hl[80];
+    varying float v_hl, v_lab;
+    void main() {
+      float lab = a_key >= 1000.0 ? 1.0 : 0.0;
+      int k = int(a_key - lab * 1000.0 + 0.5);
+      float dz = 0.0, hl = 0.0;
+      for (int i = 0; i < 80; i++) if (i == k) { dz = u_dz[i]; hl = u_hl[i]; }
+      vec3 p = a_pos; p.z += dz;
+      float cz = cos(u_rz), sz = sin(u_rz), cx = cos(u_rx), sx = sin(u_rx);
+      float x1 = p.x * cz - p.y * sz, y1 = p.x * sz + p.y * cz;
+      float y2 = y1 * cx - p.z * sx, z2 = y1 * sx + p.z * cx;
+      vec3 q = vec3(x1, y2, z2) * u_sc;
+      q.z += u_tz; q.xy += u_pan;
+      float w = u_f - q.z;
+      gl_Position = vec4(q.x * u_f / u_half.x, -q.y * u_f / u_half.y, 0.0, w);
+      v_hl = hl; v_lab = lab;
+    }`;
+  const FS_LINE = `
+    precision mediump float; varying float v_hl, v_lab; uniform float u_a, u_glow;
+    void main() {
+      float a = (0.7 + 0.3 * v_lab + 0.3 * v_hl) * u_a;
+      vec3 c = vec3(0.0, 1.0, 0.4);
+      gl_FragColor = u_glow > 0.5 ? vec4(c * a, 1.0) : vec4(c, a);
+    }`;
+  const FS_FILL = `
+    precision mediump float; varying float v_hl, v_lab; uniform float u_a;
+    void main() { gl_FragColor = vec4(0.0, 1.0, 0.4, (0.035 + 0.4 * v_hl) * u_a); }`;
+  const VS_Q = `attribute vec2 p; varying vec2 uv; void main(){ uv = p * .5 + .5; gl_Position = vec4(p, 0., 1.); }`;
+  const FS_Q = `precision mediump float; varying vec2 uv; uniform sampler2D t; uniform float g;
+    void main(){ gl_FragColor = vec4(texture2D(t, uv).rgb * g, 1.0); }`;
+  function prog(vs, fs) {
+    const mk = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+    const p = gl.createProgram();
+    gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+    const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace("[0]", ""); u[nm] = gl.getUniformLocation(p, nm + (nm.startsWith("u_dz") || nm.startsWith("u_hl") ? "[0]" : "")); }
+    return { p, u };
+  }
+  const pLine = prog(VS, FS_LINE), pFill = prog(VS, FS_FILL), pQuad = prog(VS_Q, FS_Q);
+  const mkBuf = d => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, d, gl.STATIC_DRAW); return b; };
+  const bLine = mkBuf(lineData), bTri = mkBuf(triData), bQuad = mkBuf(new Float32Array([-1,-1, 1,-1, -1,1, 1,1]));
+
+  // glow target (low-res; linear upsampling = free blur)
+  const GS = 3;
+  const gTex = gl.createTexture(), gFbo = gl.createFramebuffer();
+  let gw = 0, gh = 0;
+
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    gw = Math.max(1, Math.round(canvas.width / GS)); gh = Math.max(1, Math.round(canvas.height / GS));
+    gl.bindTexture(gl.TEXTURE_2D, gTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, gTex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    wake();
+  }
+  addEventListener("resize", resize);
+
+  // ---- state ----
   const ease = t => 1 - Math.pow(1 - t, 4);
   const lerp = (a, b, t) => a + (b - a) * t;
   const start = performance.now(), DUR = 3200;
-  // drag / swipe = orbit, wheel / pinch = zoom, shift-drag or two-finger = pan
   let yaw = 0, pitch = 0, zoom = 1, panX = 0, panY = 0;
   let tyaw = 0, tpitch = 0, tzoom = 1, tpanX = 0, tpanY = 0;
-  let moved = false;
+  const dz = new Float32Array(80), tdz = new Float32Array(80), hl = new Float32Array(80), thl = new Float32Array(80);
+  let cam = { rx: 0, rz: 0, sc: 1, tz: 0, f: 1500 };
+
+  function updateCam(now) {
+    const t = Math.min(1, (now - start) / DUR), k = ease(t);
+    const fit = Math.min(1, W / (totalW + 80)) * Math.min(1, H / 560);
+    const d = .12;
+    yaw += (tyaw - yaw) * d; pitch += (tpitch - pitch) * d; zoom += (tzoom - zoom) * d;
+    panX += (tpanX - panX) * d; panY += (tpanY - panY) * d;
+    cam = { rx: (lerp(0, 52, k) + pitch) * Math.PI / 180, rz: (lerp(-70, -14, k) + yaw) * Math.PI / 180,
+            sc: lerp(.35, 1, k) * fit * zoom, tz: lerp(-400, 0, k), f: lerp(260, 1500, k), a: Math.min(1, t * 3) };
+    return t < 1;
+  }
+  function project(x, y, z) {
+    const cz = Math.cos(cam.rz), sz = Math.sin(cam.rz), cx = Math.cos(cam.rx), sx = Math.sin(cam.rx);
+    const x1 = x * cz - y * sz, y1 = x * sz + y * cz;
+    const y2 = y1 * cx - z * sx, z2 = y1 * sx + z * cx;
+    const X = x1 * cam.sc + panX, Y = y2 * cam.sc + panY, Z = z2 * cam.sc + cam.tz;
+    const w = cam.f - Z;
+    return [W / 2 + X * cam.f / w, H / 2 + Y * cam.f / w, w];
+  }
+  function pick(px, py) {
+    let best = -1, bw = 1e9;
+    for (const k of keys) {
+      const z = BH + KH + dz[k.idx];
+      const q = [[k.x, k.y], [k.x + k.w, k.y], [k.x + k.w, k.y + k.h], [k.x, k.y + k.h]].map(c => project(c[0], c[1], z));
+      let pos = 0, neg = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = q[i], b = q[(i + 1) % 4];
+        const c = (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+        if (c > 0) pos++; else neg++;
+      }
+      if (pos === 4 || neg === 4) { const w = (q[0][2] + q[2][2]) / 2; if (w < bw) { bw = w; best = k.idx; } }
+    }
+    return best;
+  }
+
+  // ---- draw ----
+  function setCommon(P, glow, a) {
+    gl.useProgram(P.p);
+    gl.uniform1f(P.u.u_rx, cam.rx); gl.uniform1f(P.u.u_rz, cam.rz); gl.uniform1f(P.u.u_sc, cam.sc);
+    gl.uniform1f(P.u.u_tz, cam.tz); gl.uniform1f(P.u.u_f, cam.f);
+    gl.uniform2f(P.u.u_pan, panX, panY); gl.uniform2f(P.u.u_half, W / 2, H / 2);
+    gl.uniform1fv(P.u.u_dz, dz); gl.uniform1fv(P.u.u_hl, hl);
+    gl.uniform1f(P.u.u_a, a);
+    if (P.u.u_glow) gl.uniform1f(P.u.u_glow, glow);
+  }
+  function attrs(P, buf) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    const lp = gl.getAttribLocation(P.p, "a_pos"), lk = gl.getAttribLocation(P.p, "a_key");
+    gl.enableVertexAttribArray(lp); gl.enableVertexAttribArray(lk);
+    gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(lk, 1, gl.FLOAT, false, 16, 12);
+  }
+  function draw() {
+    // glow pass (low res)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gFbo);
+    gl.viewport(0, 0, gw, gh);
+    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    setCommon(pLine, 1, cam.a); attrs(pLine, bLine);
+    gl.drawArrays(gl.LINES, 0, lineData.length / 4);
+    // main pass
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(pQuad.p);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bQuad);
+    const lq = gl.getAttribLocation(pQuad.p, "p");
+    gl.enableVertexAttribArray(lq); gl.vertexAttribPointer(lq, 2, gl.FLOAT, false, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, gTex); gl.uniform1i(pQuad.u.t, 0); gl.uniform1f(pQuad.u.g, 0.55);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    setCommon(pFill, 0, cam.a); attrs(pFill, bTri);
+    gl.drawArrays(gl.TRIANGLES, 0, triData.length / 4);
+    setCommon(pLine, 0, cam.a); attrs(pLine, bLine);
+    gl.drawArrays(gl.LINES, 0, lineData.length / 4);
+  }
+
+  let raf = 0, last = 0;
+  function frame(now) {
+    raf = 0;
+    let active = updateCam(now);
+    for (let i = 0; i < 80; i++) {
+      dz[i] += (tdz[i] - dz[i]) * .35; hl[i] += (thl[i] - hl[i]) * .3;
+      if (Math.abs(tdz[i] - dz[i]) > .02 || Math.abs(thl[i] - hl[i]) > .01) active = true;
+    }
+    if (Math.abs(tyaw - yaw) + Math.abs(tpitch - pitch) + Math.abs(tpanX - panX) + Math.abs(tpanY - panY) > .02 ||
+        Math.abs(tzoom - zoom) > .0005) active = true;
+    draw();
+    if (active) raf = requestAnimationFrame(frame);
+  }
+  function wake() { if (!raf) raf = requestAnimationFrame(frame); }
+
+  // ---- input ----
+  let moved = false, leaving = false, hover = -1, pinch = 0, downPos = null;
   const ptrs = new Map();
-  let pinch = 0;
-  stage.addEventListener("pointerdown", e => {
+  function setHover(i) {
+    if (i === hover) return;
+    if (hover >= 0) thl[hover] = 0;
+    hover = i; if (i >= 0) thl[i] = 1;
+    canvas.style.cursor = i >= 0 && keys[i].label ? "pointer" : "grab";
+    wake();
+  }
+  canvas.addEventListener("pointerdown", e => {
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    stage.setPointerCapture(e.pointerId);
-    moved = false; pinch = 0;
+    canvas.setPointerCapture(e.pointerId);
+    moved = false; pinch = 0; downPos = [e.clientX, e.clientY];
   });
-  stage.addEventListener("pointermove", e => {
+  canvas.addEventListener("pointermove", e => {
     const p = ptrs.get(e.pointerId);
-    if (!p) return;
+    if (!p) { if (e.pointerType === "mouse") setHover(pick(e.clientX, e.clientY)); return; }
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (ptrs.size >= 2) {
       const [a, b] = [...ptrs.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       if (pinch) tzoom = Math.min(3, Math.max(.4, tzoom * d / pinch));
-      pinch = d;
-      tpanX += dx / 2; tpanY += dy / 2;
-      moved = true;
+      pinch = d; tpanX += dx / 2; tpanY += dy / 2; moved = true;
     } else if (e.shiftKey || e.buttons & 2) {
       tpanX += dx; tpanY += dy; moved = true;
     } else {
-      if (Math.abs(dx) + Math.abs(dy) > 0) moved = moved || Math.hypot(dx, dy) > 2;
-      tyaw += dx * .35; tpitch -= dy * .25;
-      tpitch = Math.max(-50, Math.min(35, tpitch));
+      if (Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) > 6) moved = true;
+      tyaw += dx * .35; tpitch = Math.max(-50, Math.min(35, tpitch - dy * .25));
     }
+    wake();
   });
-  const up = e => { ptrs.delete(e.pointerId); pinch = 0; setTimeout(() => { if (!ptrs.size) moved = false; }, 0); };
-  stage.addEventListener("pointerup", up);
-  stage.addEventListener("pointercancel", up);
-  stage.addEventListener("contextmenu", e => e.preventDefault());
-  stage.addEventListener("wheel", e => {
+  const end = e => {
+    const wasSingle = ptrs.size === 1;
+    ptrs.delete(e.pointerId); pinch = 0;
+    if (e.type === "pointerup" && wasSingle && !moved) {
+      const i = pick(e.clientX, e.clientY);
+      if (i >= 0 && keys[i].label) go(keys[i].label);
+    }
+  };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") setHover(-1); });
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  canvas.addEventListener("wheel", e => {
     e.preventDefault();
-    tzoom = Math.min(3, Math.max(.4, tzoom * Math.exp(-e.deltaY * .001)));
+    tzoom = Math.min(3, Math.max(.4, tzoom * Math.exp(-e.deltaY * .001))); wake();
   }, { passive: false });
-  addEventListener("dblclick", () => { tyaw = tpitch = tpanX = tpanY = 0; tzoom = 1; });
+  addEventListener("dblclick", () => { tyaw = tpitch = tpanX = tpanY = 0; tzoom = 1; wake(); });
 
-  function frame(now) {
-    const t = Math.min(1, (now - start) / DUR), k = ease(t);
-    const fit = Math.min(1, innerWidth / (totalW + 80)) * Math.min(1, innerHeight / 560);
-    const f = .12;
-    yaw += (tyaw - yaw) * f; pitch += (tpitch - pitch) * f; zoom += (tzoom - zoom) * f;
-    panX += (tpanX - panX) * f; panY += (tpanY - panY) * f;
-    const rx = lerp(0, 52, k) + pitch;
-    const rz = lerp(-70, -14, k) + yaw;
-    const sc = lerp(.35, 1, k) * fit * zoom;
-    const persp = lerp(260, 1500, k);       // strong wide-angle distortion relaxing into a calm view
-    stage.style.perspective = persp + "px";
-    board.style.opacity = Math.min(1, t * 3);
-    board.style.transform =
-      `translate(${panX}px, ${panY}px) translateZ(${lerp(-400, 0, k)}px) scale(${sc}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
-    requestAnimationFrame(frame);
+  function go(ch) {
+    if (leaving) return;
+    leaving = true;
+    tdz[byLetter[ch].idx] = -14; thl[byLetter[ch].idx] = 1; wake();
+    setTimeout(() => { location.href = `https://${ch}.${DOMAIN}`; }, 220);
   }
-  requestAnimationFrame(frame);
+  addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); go(e.key.toLowerCase()); }
+  });
+  addEventListener("pageshow", () => { leaving = false; tdz.fill(0); thl.fill(0); hover = -1; wake(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+
+  resize();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>
