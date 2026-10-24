@@ -13,6 +13,21 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
+  #search { position: fixed; inset: 0; display: none; background: rgba(0, 0, 0, .6); }
+  #search.on { display: block; }
+  #sbox {
+    position: absolute; left: 50%; top: 14%; transform: translateX(-50%); width: min(640px, calc(100% - 32px));
+    background: rgba(0, 0, 0, .92); border: 1px solid #00ff66; box-shadow: 0 0 18px rgba(0, 255, 102, .35);
+    color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; padding: 12px 14px;
+  }
+  #sbar { display: flex; gap: 10px; border-bottom: 1px solid #00ff66; padding-bottom: 6px; }
+  #sq { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #00ff66; font: inherit; font-size: 20px; caret-color: #00ff66; }
+  #slist { margin-top: 6px; max-height: 50vh; overflow: auto; }
+  #slist a { display: flex; justify-content: space-between; gap: 10px; padding: 3px 6px; color: #00ff66; text-decoration: none; }
+  #slist a.active, #slist a:hover { background: rgba(0, 255, 102, .18); }
+  #slist mark { background: none; color: #fff; font-weight: 600; }
+  #slist .tags, #smeta { color: rgba(0, 255, 102, .5); font-size: 12px; }
+  #smeta { margin-top: 4px; }
   #tip {
     position: fixed; left: 0; top: 0; max-width: 260px; padding: 8px 10px; opacity: 0;
     pointer-events: none; background: rgba(0, 0, 0, .85); border: 1px solid #00ff66;
@@ -31,6 +46,7 @@
 <canvas id="gl"></canvas>
 <pre id="term"></pre>
 <div id="tip"></div>
+<div id="search"><div id="sbox"><label id="sbar"><span>&rsaquo;</span><input id="sq" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="host"></label><div id="slist"></div><div id="smeta"></div></div></div>
 <script>
 (() => {
   const U = 56, KH = 22, BH = 8, GAP = 4, PAD = 14, DOMAIN = "poet.blue";
@@ -65,6 +81,7 @@
     x:[[[0,0],[2,4]],[[2,0],[0,4]]],
     y:[[[0,0],[1,2],[2,0]],[[1,2],[1,4]]],
     z:[[[0,0],[2,0],[0,4],[2,4]]],
+    "/":[[[2,0],[0,4]]],
   };
 
   // ---- sites: letter -> subdomain info ----
@@ -81,6 +98,7 @@
     s: ["#b8c4d8", "reqr", "URL sharing service."],
     c: ["#c98a4b", "quick", "Bookmark archive."],
     k: ["#e9e4cf", "qk", "Quote screensaver for e-paper devices."],
+    "/": ["#00ff66", "search", "Search ~1,500 hosts. Press / anywhere. @tag filters, Esc closes."],
   };
   const OWNER_ONLY = new Set(["q", "c", "b", "k"]);
   const GREEN = [0, 1, .4];
@@ -100,7 +118,7 @@
     let x = PAD;
     row.forEach(([label, wu]) => {
       keys.push({ x: x + GAP / 2 - totalW / 2, y: PAD + ri * U + GAP / 2 - totalH / 2,
-                  w: wu * U - GAP, h: U - GAP, label: /^[a-z]$/.test(label) ? label : "", idx: keys.length });
+                  w: wu * U - GAP, h: U - GAP, label: /^[a-z\/]$/.test(label) ? label : "", idx: keys.length });
       x += wu * U;
     });
   });
@@ -319,7 +337,7 @@
     const site = i >= 0 && SITES[keys[i].label];
     if (!site) { tip.style.opacity = 0; return; }
     const ch = keys[i].label;
-    tip.innerHTML = `<b style="color:${site[0]}">${ch}.${DOMAIN}</b><br>${site[1]} — ${site[2]}` +
+    tip.innerHTML = `<b style="color:${site[0]}">${ch === "/" ? "/ search" : ch + "." + DOMAIN}</b><br>${site[1]} — ${site[2]}` +
       (OWNER_ONLY.has(ch) ? `<br><b style="color:#ff8a1f">[ OWNER'S ONLY ]</b>` : "");
     tip.style.borderColor = site[0];
     tip.style.opacity = 1;
@@ -377,13 +395,15 @@
   addEventListener("dblclick", () => { tyaw = tpitch = tpanX = tpanY = 0; tzoom = 1; wake(); });
 
   function go(ch) {
+    if (ch === "/") { openSearch(); return; }
     if (leaving || !SITES[ch]) return;
     leaving = true;
     tdz[byLetter[ch].idx] = -14; thl[byLetter[ch].idx] = 1; wake();
     setTimeout(() => { location.href = `https://${ch}.${DOMAIN}`; }, 220);
   }
   addEventListener("keydown", e => {
-    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (searchOpen || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (e.key === "/") { e.preventDefault(); openSearch(); return; }
     if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); go(e.key.toLowerCase()); }
   });
   addEventListener("pageshow", () => { leaving = false; tdz.fill(0); thl.fill(0); hover = -1; wake(); });
@@ -413,6 +433,65 @@
     cursor.remove();
     setInterval(() => { lineEls.forEach((el, i) => { if (i) el.textNode.data = lineFns[i](); }); }, 1000);
   })();
+
+  // ---- host search (ported from gojiroma/go): "/" opens, one match opens the site ----
+  const sEl = document.getElementById("search"), sq = document.getElementById("sq"),
+        sList = document.getElementById("slist"), sMeta = document.getElementById("smeta");
+  let searchOpen = false, hosts = null, shown = [], act = 0, lastOpened = "", loading = null;
+  const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const hiName = (name, t) => { if (!t) return esc(name); const i = name.toLowerCase().indexOf(t);
+    return i < 0 ? esc(name) : esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + t.length)) + "</mark>" + esc(name.slice(i + t.length)); };
+  function loadHosts() {
+    if (hosts) return Promise.resolve();
+    return loading || (loading = new Promise(res => {
+      const sc = document.createElement("script");
+      sc.src = "hosts.js"; sc.onload = () => { hosts = window.GO_HOSTS; res(); };
+      sc.onerror = () => { loading = null; sMeta.textContent = "failed to load hosts"; res(); };
+      document.head.appendChild(sc);
+    }));
+  }
+  function sRender() {
+    if (!hosts) { sList.innerHTML = ""; sMeta.textContent = "loading..."; return; }
+    const words = sq.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const t = words.filter(w => w[0] !== "@").join(" ");
+    const tagHit = (h, g) => h.tags.some(x => x.startsWith(g));
+    shown = hosts.filter(h => words.every(w => w[0] === "@" ? tagHit(h, w.slice(1)) : (h.key.includes(w) || tagHit(h, w))));
+    act = Math.min(act, Math.max(0, shown.length - 1));
+    const LIM = 40;
+    sList.innerHTML = shown.slice(0, LIM).map((h, i) =>
+      `<a href="${esc(h.to)}" target="_blank" rel="noopener" data-i="${i}" class="${i === act ? "active" : ""}"><span>${hiName(h.name, t)}</span>` +
+      (h.tags.length ? `<span class="tags">${h.tags.map(x => "@" + x).join(" ")}</span>` : "") + "</a>").join("");
+    sMeta.textContent = shown.length > LIM ? `${LIM} / ${shown.length}` : `${shown.length} / ${hosts.length}`;
+    const el = sList.children[act]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }
+  function openHost(h) {
+    let w = null; try { w = window.open(h.to, "_blank"); } catch {}
+    if (w) { try { w.opener = null; } catch {} lastOpened = h.host; sq.value = ""; act = 0; sRender(); }
+  }
+  function openSearch() {
+    if (searchOpen) return;
+    searchOpen = true; sEl.classList.add("on"); sq.value = ""; act = 0; sMeta.textContent = "loading...";
+    sq.focus();
+    loadHosts().then(sRender);
+  }
+  function closeSearch() { searchOpen = false; sEl.classList.remove("on"); sq.blur(); }
+  sq.addEventListener("input", () => {
+    act = 0; sRender();
+    const t = sq.value.trim();
+    if (t && shown.length === 1 && lastOpened !== shown[0].host + "|" + t) { lastOpened = shown[0].host + "|" + t; openHost(shown[0]); }
+  });
+  sq.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); act = Math.min(act + 1, Math.min(shown.length, 40) - 1); sRender(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); act = Math.max(act - 1, 0); sRender(); }
+    else if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      if (/[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]/.test(sq.value)) location.assign("https://www.google.com/search?btnI=1&q=" + encodeURIComponent(sq.value.trim()));
+      else if (shown[act]) openHost(shown[act]);
+    }
+    else if (e.key === "Escape") { if (sq.value) { sq.value = ""; sRender(); } else closeSearch(); }
+  });
+  sList.addEventListener("click", e => { if (e.target.closest("a")) setTimeout(() => { sq.value = ""; sRender(); sq.focus(); }, 0); });
+  sEl.addEventListener("pointerdown", e => { if (e.target === sEl) closeSearch(); });
 
   resize();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
