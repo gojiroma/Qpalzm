@@ -23,8 +23,8 @@
   #sbar { display: flex; gap: 10px; border-bottom: 1px solid #00ff66; padding-bottom: 6px; }
   #sq { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #00ff66; font: inherit; font-size: 20px; caret-color: #00ff66; }
   #slist { margin-top: 6px; max-height: 50vh; overflow: auto; }
-  #slist a { display: flex; justify-content: space-between; gap: 10px; padding: 3px 6px; color: #00ff66; text-decoration: none; }
-  #slist a.active, #slist a:hover { background: rgba(0, 255, 102, .18); }
+  #slist a, #slist div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 6px; color: #00ff66; text-decoration: none; cursor: pointer; }
+  #slist .active, #slist a:hover, #slist div:hover { background: rgba(0, 255, 102, .18); }
   #slist mark { background: none; color: #fff; font-weight: 600; }
   #slist .tags, #smeta { color: rgba(0, 255, 102, .5); font-size: 12px; }
   #smeta { margin-top: 4px; }
@@ -90,7 +90,6 @@
     q: ["#2f6bff", "quotes", "Quote collection under a starry sky."],
     v: ["#ff8a1f", "cb", "Life-log aggregation: statements and records in one place."],
     o: ["#ffe14a", "oneliner", "Copy-paste one-liners, ready to grab."],
-    g: ["#9b7bff", "go", "Fast launcher for your favorite links."],
     b: ["#ff4fa0", "calbu", "Calbu."],
     j: ["#d44fff", "jotd", "Quick notes for when you just need to scribble."],
     a: ["#ffffff", "ihcimen", "A memo diary with a date-stamped clock."],
@@ -437,7 +436,7 @@
   // ---- host search (ported from gojiroma/go): "/" opens, one match opens the site ----
   const sEl = document.getElementById("search"), sq = document.getElementById("sq"),
         sList = document.getElementById("slist"), sMeta = document.getElementById("smeta");
-  let searchOpen = false, hosts = null, shown = [], act = 0, lastOpened = "", loading = null;
+  let searchOpen = false, hosts = null, sugs = [], tagCount = null, shown = [], act = 0, lastOpened = "", loading = null;
   const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const hiName = (name, t) => { if (!t) return esc(name); const i = name.toLowerCase().indexOf(t);
     return i < 0 ? esc(name) : esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + t.length)) + "</mark>" + esc(name.slice(i + t.length)); };
@@ -452,6 +451,22 @@
   }
   function sRender() {
     if (!hosts) { sList.innerHTML = ""; sMeta.textContent = "loading..."; return; }
+    if (!tagCount) { tagCount = {}; hosts.forEach(h => h.tags.forEach(t => { tagCount[t] = (tagCount[t] || 0) + 1; })); }
+    const v = sq.value, m = /(?:^|\s)@([^\s@]*)$/.exec(v);   // last token is a half-typed @tag
+    sugs = [];
+    if (m) {
+      const part = m[1].toLowerCase();
+      const hit = Object.keys(tagCount).filter(t => t.startsWith(part)).sort((a, b) => tagCount[b] - tagCount[a] || a.localeCompare(b));
+      if (!(hit.length === 1 && hit[0] === part)) sugs = hit;
+    }
+    if (sugs.length) {
+      act = Math.min(act, sugs.length - 1);
+      sList.innerHTML = sugs.map((t, i) => `<div data-tag="${esc(t)}" class="${i === act ? "active" : ""}"><span>@${esc(t)}</span><span class="tags">${tagCount[t]}</span></div>`).join("");
+      sMeta.textContent = `${sugs.length} tags — Tab / Enter to pick`;
+      shown = [];
+      const el0 = sList.children[act]; if (el0 && el0.scrollIntoView) el0.scrollIntoView({ block: "nearest" });
+      return;
+    }
     const words = sq.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const t = words.filter(w => w[0] !== "@").join(" ");
     const tagHit = (h, g) => h.tags.some(x => x.startsWith(g));
@@ -478,11 +493,12 @@
   sq.addEventListener("input", () => {
     act = 0; sRender();
     const t = sq.value.trim();
-    if (t && shown.length === 1 && lastOpened !== shown[0].host + "|" + t) { lastOpened = shown[0].host + "|" + t; openHost(shown[0]); }
+    if (t && !sugs.length && shown.length === 1 && lastOpened !== shown[0].host + "|" + t) { lastOpened = shown[0].host + "|" + t; openHost(shown[0]); }
   });
   sq.addEventListener("keydown", e => {
-    if (e.key === "ArrowDown") { e.preventDefault(); act = Math.min(act + 1, Math.min(shown.length, 40) - 1); sRender(); }
+    if (e.key === "ArrowDown") { e.preventDefault(); act = Math.min(act + 1, (sugs.length || Math.min(shown.length, 40)) - 1); sRender(); }
     else if (e.key === "ArrowUp") { e.preventDefault(); act = Math.max(act - 1, 0); sRender(); }
+    else if ((e.key === "Tab" || e.key === "Enter") && sugs.length && !e.isComposing) { e.preventDefault(); pickTag(sugs[act]); }
     else if (e.key === "Enter" && !e.isComposing) {
       e.preventDefault();
       if (/[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]/.test(sq.value)) location.assign("https://www.google.com/search?btnI=1&q=" + encodeURIComponent(sq.value.trim()));
@@ -490,7 +506,10 @@
     }
     else if (e.key === "Escape") { if (sq.value) { sq.value = ""; sRender(); } else closeSearch(); }
   });
-  sList.addEventListener("click", e => { if (e.target.closest("a")) setTimeout(() => { sq.value = ""; sRender(); sq.focus(); }, 0); });
+  function pickTag(t) { sq.value = sq.value.replace(/@[^\s@]*$/, "@" + t + " "); act = 0; sRender(); sq.focus(); }
+  sList.addEventListener("click", e => {
+    const d = e.target.closest("[data-tag]");
+    if (d) { pickTag(d.dataset.tag); return; } if (e.target.closest("a")) setTimeout(() => { sq.value = ""; sRender(); sq.focus(); }, 0); });
   sEl.addEventListener("pointerdown", e => { if (e.target === sEl) closeSearch(); });
 
   resize();
