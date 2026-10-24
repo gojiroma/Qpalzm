@@ -13,10 +13,19 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
+  #term {
+    position: fixed; left: 20px; top: 16px; margin: 0; pointer-events: none;
+    color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .7); white-space: pre; user-select: none;
+  }
+  #term i { font-style: normal; display: inline-block; width: .6em; height: 1em; margin-left: 2px;
+    background: #00ff66; vertical-align: -.12em; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
+<pre id="term"></pre>
 <script>
 (() => {
   const U = 56, KH = 22, BH = 8, GAP = 4, PAD = 14, DOMAIN = "poet.blue";
@@ -333,6 +342,31 @@
   });
   addEventListener("pageshow", () => { leaving = false; tdz.fill(0); thl.fill(0); hover = -1; wake(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+
+  // ---- terminal readout: typed one char at a time, then a live clock ----
+  const term = document.getElementById("term");
+  const p2 = n => String(n).padStart(2, "0");
+  const lineFns = [
+    () => "poet.blue homepage",
+    () => { const d = new Date(); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; },
+    () => { const d = new Date(); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; },
+  ];
+  const lineEls = lineFns.map(() => { const d = document.createElement("div"); term.appendChild(d); return d; });
+  const cursor = document.createElement("i");
+  (async () => {
+    await new Promise(r => setTimeout(r, 900));
+    for (let i = 0; i < lineFns.length; i++) {
+      const text = lineFns[i](), node = document.createTextNode("");
+      lineEls[i].append(node, cursor);
+      for (const ch of text) {
+        node.data += ch;
+        await new Promise(r => setTimeout(r, 45 + Math.random() * 60));
+      }
+      lineEls[i].textNode = node;
+      await new Promise(r => setTimeout(r, 180));
+    }
+    setInterval(() => { lineEls.forEach((el, i) => { if (i) el.textNode.data = lineFns[i](); }); }, 1000);
+  })();
 
   resize();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
