@@ -1865,5 +1865,18 @@ const hosts=[...map].map(([host,v])=>{
   const bare=host.replace(/^www\./,'');
   return {host,name,tags:TAGS[bare]||[],key:name.toLowerCase()+' '+host.toLowerCase(),n:v.urls.length,to:v.origin+'/'};
 }).sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+// radiko live pages: all share one host, so they are added as individual entries (@radio)
+const RADIO = [
+  ["TBSラジオ", "TBS", "tbs radio"], ["文化放送", "QRR", "bunka housou"], ["ニッポン放送", "LFR", "nippon housou"],
+  ["ラジオNIKKEI第1", "RN1", "nikkei"], ["ラジオNIKKEI第2", "RN2", "nikkei"], ["interfm", "INT", "inter fm"],
+  ["TOKYO FM", "FMT", "tokyofm"], ["J-WAVE", "FMJ", "jwave"], ["ラジオ日本", "JORF", "radio nippon"],
+  ["BAYFM78", "BAYFM78", "bay fm"], ["NACK5", "NACK5", "nack"], ["ＦＭヨコハマ", "YFM", "fm yokohama"],
+  ["LuckyFM 茨城放送", "IBS", "lucky fm ibaraki"], ["NHK AM（東京）", "JOAK", "nhk r1"], ["NHK FM（東京）", "JOAK-FM", "nhk fm"],
+];
+RADIO.forEach(([name, id, alias]) => hosts.push({
+  host: "radiko.jp/#!/live/" + id, name, tags: ["radio"], n: 1, to: "https://radiko.jp/#!/live/" + id,
+  key: (name + " " + id + " " + alias + " radiko radio ラジオ").toLowerCase(),
+}));
+hosts.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 window.GO_HOSTS = hosts;
 })();
