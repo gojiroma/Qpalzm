@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poet.blue keyboard</title>
+<style>
+  :root { --g: #00ff66; --u: 56px; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    perspective: 4000px;
+  }
+  #board {
+    position: relative;
+    transform-style: preserve-3d;
+    will-change: transform;
+  }
+  .box { position: absolute; transform-style: preserve-3d; }
+  .face {
+    position: absolute; left: 0; top: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--g);
+    background: rgba(0, 255, 102, .02);
+    backface-visibility: visible;
+    filter: drop-shadow(0 0 3px rgba(0, 255, 102, .6));
+    display: flex; align-items: center; justify-content: center;
+    color: var(--g);
+    font: 600 calc(var(--u) * .36) / 1 "SF Mono", Menlo, Consolas, monospace;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  .key { cursor: pointer; transition: transform .12s ease-out; }
+  .key .top { transition: background .12s, box-shadow .12s; }
+  .key:hover .top { background: rgba(0, 255, 102, .14); }
+  .key.down { transform: translateZ(-14px); }
+  .key.down .face { background: rgba(0, 255, 102, .35); }
+  .base .face { border-color: rgba(0, 255, 102, .55); }
+  #hint {
+    position: fixed; bottom: 14px; width: 100%; text-align: center;
+    color: rgba(0, 255, 102, .45); font: 12px monospace; letter-spacing: .2em;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="stage"><div id="board"></div></div>
+<div id="hint">PRESS ANY LETTER &rarr; X.POET.BLUE</div>
+
+<script>
+(() => {
+  const U = 56, H = 22, GAP = 4, DOMAIN = "poet.blue";
+  const board = document.getElementById("board");
+  const stage = document.getElementById("stage");
+
+  // [label, width in units]; single letters are active
+  const rows = [
+    [..."`1234567890-=".split("").map(c => [c, 1]), ["", 2]],
+    [["", 1.5], ..."qwertyuiop[]".split("").map(c => [c, 1]), ["", 1.5]],
+    [["", 1.75], ..."asdfghjkl;'".split("").map(c => [c, 1]), ["", 2.25]],
+    [["", 2.25], ..."zxcvbnm,./".split("").map(c => [c, 1]), ["", 2.75]],
+    [["", 1.25], ["", 1.25], ["", 1.25], ["", 6.25], ["", 1.25], ["", 1.25], ["", 1.25], ["", 1.25]],
+  ];
+  const PAD = 14;
+  const totalW = 15 * U + PAD * 2;
+  const totalH = rows.length * U + PAD * 2;
+  board.style.width = totalW + "px";
+  board.style.height = totalH + "px";
+
+  function face(parent, cls, w, h, tf, label) {
+    const f = document.createElement("div");
+    f.className = "face " + cls;
+    f.style.width = w + "px";
+    f.style.height = h + "px";
+    f.style.transform = tf;
+    if (label) f.textContent = label;
+    parent.appendChild(f);
+    return f;
+  }
+
+  function makeKey(x, y, w, h, d, label) {
+    const b = document.createElement("div");
+    b.className = "box";
+    b.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;`;
+    face(b, "top", w, h, `translateZ(${d}px)`, label);
+    // front (bottom edge in screen) / back (top edge)
+    const fr = face(b, "side", w, d, `translateY(${h - d / 2}px) translateZ(${d / 2}px) rotateX(-90deg)`);
+    const bk = face(b, "side", w, d, `translateY(${-d / 2}px) translateZ(${d / 2}px) rotateX(-90deg)`);
+    // left / right
+    const lf = face(b, "side", d, h, `translateX(${-d / 2}px) translateZ(${d / 2}px) rotateY(-90deg)`);
+    const rt = face(b, "side", d, h, `translateX(${w - d / 2}px) translateZ(${d / 2}px) rotateY(-90deg)`);
+    return b;
+  }
+
+  // base slab
+  const base = makeKey(0, 0, totalW, totalH, 8, "");
+  base.classList.add("base");
+  board.appendChild(base);
+
+  const keyEls = {};
+  rows.forEach((row, ri) => {
+    let x = PAD;
+    row.forEach(([label, wu]) => {
+      const w = wu * U - GAP;
+      const el = makeKey(x + GAP / 2, PAD + ri * U + GAP / 2, w, U - GAP, H, /^[a-z]$/.test(label) ? label : "");
+      el.classList.add("key");
+      el.style.transform = "translateZ(8px)";
+      if (/^[a-z]$/.test(label)) {
+        el.dataset.k = label;
+        keyEls[label] = el;
+        el.addEventListener("click", () => go(label));
+      }
+      board.appendChild(el);
+      x += wu * U;
+    });
+  });
+
+  // keys live above base; .down overrides transform
+  const style = document.createElement("style");
+  style.textContent = `.key{transform:translateZ(8px)} .key.down{transform:translateZ(-6px)}`;
+  document.head.appendChild(style);
+
+  let leaving = false;
+  function go(ch) {
+    if (leaving) return;
+    leaving = true;
+    const el = keyEls[ch];
+    if (el) el.classList.add("down");
+    setTimeout(() => { location.href = `https://${ch}.${DOMAIN}`; }, 220);
+  }
+  addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); go(e.key.toLowerCase()); }
+  });
+  addEventListener("pageshow", () => {
+    leaving = false;
+    Object.values(keyEls).forEach(el => el.classList.remove("down"));
+  });
+
+  // ---- camera: intro perspective shift, then mouse parallax ----
+  const ease = t => 1 - Math.pow(1 - t, 4);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const start = performance.now(), DUR = 3200;
+  let mx = 0, my = 0, sx = 0, sy = 0;
+  addEventListener("pointermove", e => {
+    mx = e.clientX / innerWidth - .5;
+    my = e.clientY / innerHeight - .5;
+  });
+
+  function frame(now) {
+    const t = Math.min(1, (now - start) / DUR), k = ease(t);
+    const fit = Math.min(1, innerWidth / (totalW + 80)) * Math.min(1, innerHeight / 560);
+    sx += (mx - sx) * .06; sy += (my - sy) * .06;
+    const rx = lerp(0, 52, k) - sy * 8;
+    const rz = lerp(-70, -14, k) + sx * 10;
+    const sc = lerp(.35, 1, k) * fit;
+    const persp = lerp(260, 1500, k);       // strong wide-angle distortion relaxing into a calm view
+    stage.style.perspective = persp + "px";
+    board.style.opacity = Math.min(1, t * 3);
+    board.style.transform =
+      `translateZ(${lerp(-400, 0, k)}px) scale(${sc}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
