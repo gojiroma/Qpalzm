@@ -1,4 +1,4 @@
-const CACHE = "qpalzm-v4";
+const CACHE = "qpalzm-v5";
 const ASSETS = ["./", "./index.html", "./hosts.js", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
