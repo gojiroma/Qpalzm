@@ -13,6 +13,11 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
+  #tip {
+    position: fixed; left: 0; top: 0; max-width: 260px; padding: 8px 10px; opacity: 0;
+    pointer-events: none; background: rgba(0, 0, 0, .85); border: 1px solid #00ff66;
+    color: #cfe; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; transition: opacity .12s;
+  }
   #term {
     position: fixed; left: 20px; top: 16px; margin: 0; pointer-events: none;
     color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em;
@@ -25,6 +30,7 @@
 <body>
 <canvas id="gl"></canvas>
 <pre id="term"></pre>
+<div id="tip"></div>
 <script>
 (() => {
   const U = 56, KH = 22, BH = 8, GAP = 4, PAD = 14, DOMAIN = "poet.blue";
@@ -61,6 +67,24 @@
     z:[[[0,0],[2,0],[0,4],[2,4]]],
   };
 
+  // ---- sites: letter -> subdomain info ----
+  const SITES = {
+    h: ["#55d6ff", "hb", "Hatena-style bookmarks. j/k to move, p/n to switch category."],
+    q: ["#2f6bff", "quotes", "Quote collection under a starry sky."],
+    v: ["#ff8a1f", "cb", "Life-log aggregation: statements and records in one place."],
+    o: ["#ffe14a", "oneliner", "Copy-paste one-liners, ready to grab."],
+    g: ["#9b7bff", "go", "Fast launcher for your favorite links."],
+    b: ["#ff4fa0", "calbu", "Calbu."],
+    j: ["#d44fff", "jotd", "Quick notes for when you just need to scribble."],
+    a: ["#ffffff", "ihcimen", "A memo diary with a date-stamped clock."],
+    p: ["#ff3b3b", "pw", "Password generator."],
+    s: ["#b8c4d8", "reqr", "URL sharing service."],
+    c: ["#c98a4b", "quick", "Bookmark archive."],
+    k: ["#e9e4cf", "qk", "Quote screensaver for e-paper devices."],
+  };
+  const GREEN = [0, 1, .4];
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+
   // ---- layout ----
   const rows = [
     [..."`1234567890-=".split("").map(c => [c, 1]), ["", 2]],
@@ -85,18 +109,22 @@
 
   // ---- geometry: [x,y,z,keyIdx] ----
   const lines = [], tris = [];
-  const L = (a, b, k) => lines.push(a[0], a[1], a[2], k, b[0], b[1], b[2], k);
+  let CUR = GREEN;
+  const L = (a, b, k) => lines.push(a[0], a[1], a[2], k, ...CUR, b[0], b[1], b[2], k, ...CUR);
   function box(x, y, w, h, z0, z1, k) {
     const c = z => [[x, y, z], [x + w, y, z], [x + w, y + h, z], [x, y + h, z]];
     const lo = c(z0), hi = c(z1);
     for (let i = 0; i < 4; i++) { L(lo[i], lo[(i + 1) % 4], k); L(hi[i], hi[(i + 1) % 4], k); L(lo[i], hi[i], k); }
-    const t = (a, b, c2) => tris.push(...a, k, ...b, k, ...c2, k);
+    const t = (a, b, c2) => tris.push(...a, k, ...CUR, ...b, k, ...CUR, ...c2, k, ...CUR);
     t(hi[0], hi[1], hi[2]); t(hi[0], hi[2], hi[3]);
   }
   box(-totalW / 2, -totalH / 2, totalW, totalH, 0, BH, BASE);
   keys.forEach(k => {
+    const site = SITES[k.label];
+    CUR = site ? hex(site[0]) : GREEN;
     box(k.x, k.y, k.w, k.h, BH, BH + KH, k.idx);
     if (!k.label) return;
+    if (!site) CUR = GREEN.map(v => v * .4);
     const s = 6.5, gx = k.x + k.w / 2 - s, gy = k.y + k.h / 2 - 2 * s, z = BH + KH + .3;
     F[k.label].forEach(st => {
       for (let i = 0; i < st.length - 1; i++)
@@ -107,15 +135,15 @@
 
   // ---- GL setup ----
   const VS = `
-    attribute vec3 a_pos; attribute float a_key;
+    attribute vec3 a_pos; attribute float a_key; attribute vec3 a_col;
     uniform float u_rx, u_rz, u_sc, u_tz, u_f; uniform vec2 u_pan, u_half;
-    uniform float u_dz[80], u_hl[80];
-    varying float v_hl, v_lab;
+    uniform vec2 u_st[80];
+    varying float v_hl, v_lab; varying vec3 v_col;
     void main() {
       float lab = a_key >= 1000.0 ? 1.0 : 0.0;
       int k = int(a_key - lab * 1000.0 + 0.5);
       float dz = 0.0, hl = 0.0;
-      for (int i = 0; i < 80; i++) if (i == k) { dz = u_dz[i]; hl = u_hl[i]; }
+      for (int i = 0; i < 80; i++) if (i == k) { dz = u_st[i].x; hl = u_st[i].y; }
       vec3 p = a_pos; p.z += dz;
       float cz = cos(u_rz), sz = sin(u_rz), cx = cos(u_rx), sx = sin(u_rx);
       float x1 = p.x * cz - p.y * sz, y1 = p.x * sz + p.y * cz;
@@ -124,18 +152,18 @@
       q.z += u_tz; q.xy += u_pan;
       float w = u_f - q.z;
       gl_Position = vec4(q.x * u_f / u_half.x, -q.y * u_f / u_half.y, 0.0, w);
-      v_hl = hl; v_lab = lab;
+      v_hl = hl; v_lab = lab; v_col = a_col;
     }`;
   const FS_LINE = `
-    precision mediump float; varying float v_hl, v_lab; uniform float u_a, u_glow;
+    precision mediump float; varying float v_hl, v_lab; varying vec3 v_col; uniform float u_a, u_glow;
     void main() {
       float a = (0.7 + 0.3 * v_lab + 0.3 * v_hl) * u_a;
-      vec3 c = vec3(0.0, 1.0, 0.4);
+      vec3 c = v_col;
       gl_FragColor = u_glow > 0.5 ? vec4(c * a, 1.0) : vec4(c, a);
     }`;
   const FS_FILL = `
-    precision mediump float; varying float v_hl, v_lab; uniform float u_a;
-    void main() { gl_FragColor = vec4(0.0, 1.0, 0.4, (0.035 + 0.4 * v_hl) * u_a); }`;
+    precision mediump float; varying float v_hl, v_lab; varying vec3 v_col; uniform float u_a;
+    void main() { gl_FragColor = vec4(v_col, (0.035 + 0.4 * v_hl) * u_a); }`;
   const VS_Q = `attribute vec2 p; varying vec2 uv; void main(){ uv = p * .5 + .5; gl_Position = vec4(p, 0., 1.); }`;
   const FS_Q = `precision mediump float; varying vec2 uv; uniform sampler2D t; uniform float g;
     void main(){ gl_FragColor = vec4(texture2D(t, uv).rgb * g, 1.0); }`;
@@ -146,7 +174,7 @@
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
     const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-    for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace("[0]", ""); u[nm] = gl.getUniformLocation(p, nm + (nm.startsWith("u_dz") || nm.startsWith("u_hl") ? "[0]" : "")); }
+    for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace("[0]", ""); u[nm] = gl.getUniformLocation(p, nm + (nm.startsWith("u_st") ? "[0]" : "")); }
     return { p, u };
   }
   const pLine = prog(VS, FS_LINE), pFill = prog(VS, FS_FILL), pQuad = prog(VS_Q, FS_Q);
@@ -183,6 +211,7 @@
   const start = performance.now() + 700, DUR = 3200;   // text first, keyboard follows
   let yaw = 0, pitch = 0, zoom = 1, panX = 0, panY = 0;
   let tyaw = 0, tpitch = 0, tzoom = 1, tpanX = 0, tpanY = 0;
+  const st = new Float32Array(160);
   const dz = new Float32Array(80), tdz = new Float32Array(80), hl = new Float32Array(80), thl = new Float32Array(80);
   let cam = { rx: 0, rz: 0, sc: 1, tz: 0, f: 1500 };
 
@@ -226,16 +255,18 @@
     gl.uniform1f(P.u.u_rx, cam.rx); gl.uniform1f(P.u.u_rz, cam.rz); gl.uniform1f(P.u.u_sc, cam.sc);
     gl.uniform1f(P.u.u_tz, cam.tz); gl.uniform1f(P.u.u_f, cam.f);
     gl.uniform2f(P.u.u_pan, panX, panY); gl.uniform2f(P.u.u_half, W / 2, H / 2);
-    gl.uniform1fv(P.u.u_dz, dz); gl.uniform1fv(P.u.u_hl, hl);
+    for (let i = 0; i < 80; i++) { st[i * 2] = dz[i]; st[i * 2 + 1] = hl[i]; }
+    gl.uniform2fv(P.u.u_st, st);
     gl.uniform1f(P.u.u_a, a);
     if (P.u.u_glow) gl.uniform1f(P.u.u_glow, glow);
   }
   function attrs(P, buf) {
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    const lp = gl.getAttribLocation(P.p, "a_pos"), lk = gl.getAttribLocation(P.p, "a_key");
-    gl.enableVertexAttribArray(lp); gl.enableVertexAttribArray(lk);
-    gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 16, 0);
-    gl.vertexAttribPointer(lk, 1, gl.FLOAT, false, 16, 12);
+    const lp = gl.getAttribLocation(P.p, "a_pos"), lk = gl.getAttribLocation(P.p, "a_key"), lc = gl.getAttribLocation(P.p, "a_col");
+    gl.enableVertexAttribArray(lp); gl.enableVertexAttribArray(lk); gl.enableVertexAttribArray(lc);
+    gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 28, 0);
+    gl.vertexAttribPointer(lk, 1, gl.FLOAT, false, 28, 12);
+    gl.vertexAttribPointer(lc, 3, gl.FLOAT, false, 28, 16);
   }
   function draw() {
     // glow pass (low res)
@@ -244,7 +275,7 @@
     gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     setCommon(pLine, 1, cam.a); attrs(pLine, bLine);
-    gl.drawArrays(gl.LINES, 0, lineData.length / 4);
+    gl.drawArrays(gl.LINES, 0, lineData.length / 7);
     // main pass
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -258,9 +289,9 @@
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     setCommon(pFill, 0, cam.a); attrs(pFill, bTri);
-    gl.drawArrays(gl.TRIANGLES, 0, triData.length / 4);
+    gl.drawArrays(gl.TRIANGLES, 0, triData.length / 7);
     setCommon(pLine, 0, cam.a); attrs(pLine, bLine);
-    gl.drawArrays(gl.LINES, 0, lineData.length / 4);
+    gl.drawArrays(gl.LINES, 0, lineData.length / 7);
   }
 
   let raf = 0, last = 0;
@@ -281,11 +312,25 @@
   // ---- input ----
   let moved = false, leaving = false, hover = -1, pinch = 0, downPos = null;
   const ptrs = new Map();
+  const tip = document.getElementById("tip");
+  let tipX = 0, tipY = 0;
+  function showTip(i) {
+    const site = i >= 0 && SITES[keys[i].label];
+    if (!site) { tip.style.opacity = 0; return; }
+    const ch = keys[i].label;
+    tip.innerHTML = `<b style="color:${site[0]}">${ch}.${DOMAIN}</b><br>${site[1]} — ${site[2]}`;
+    tip.style.borderColor = site[0];
+    tip.style.opacity = 1;
+  }
+  function moveTip(x, y) {
+    tip.style.transform = `translate(${Math.min(x + 16, W - tip.offsetWidth - 8)}px, ${Math.min(y + 18, H - tip.offsetHeight - 8)}px)`;
+  }
   function setHover(i) {
     if (i === hover) return;
     if (hover >= 0) thl[hover] = 0;
     hover = i; if (i >= 0) thl[i] = 1;
-    canvas.style.cursor = i >= 0 && keys[i].label ? "pointer" : "grab";
+    canvas.style.cursor = i >= 0 && SITES[keys[i].label] ? "pointer" : "grab";
+    showTip(i);
     wake();
   }
   canvas.addEventListener("pointerdown", e => {
@@ -295,7 +340,7 @@
   });
   canvas.addEventListener("pointermove", e => {
     const p = ptrs.get(e.pointerId);
-    if (!p) { if (e.pointerType === "mouse") setHover(pick(e.clientX, e.clientY)); return; }
+    if (!p) { if (e.pointerType === "mouse") { setHover(pick(e.clientX, e.clientY)); moveTip(e.clientX, e.clientY); } return; }
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (ptrs.size >= 2) {
@@ -316,7 +361,7 @@
     ptrs.delete(e.pointerId); pinch = 0;
     if (e.type === "pointerup" && wasSingle && !moved) {
       const i = pick(e.clientX, e.clientY);
-      if (i >= 0 && keys[i].label) go(keys[i].label);
+      if (i >= 0 && SITES[keys[i].label]) go(keys[i].label);
     }
   };
   canvas.addEventListener("pointerup", end);
@@ -330,7 +375,7 @@
   addEventListener("dblclick", () => { tyaw = tpitch = tpanX = tpanY = 0; tzoom = 1; wake(); });
 
   function go(ch) {
-    if (leaving) return;
+    if (leaving || !SITES[ch]) return;
     leaving = true;
     tdz[byLetter[ch].idx] = -14; thl[byLetter[ch].idx] = 1; wake();
     setTimeout(() => { location.href = `https://${ch}.${DOMAIN}`; }, 220);
