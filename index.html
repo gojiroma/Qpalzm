@@ -208,7 +208,7 @@
   // ---- state ----
   const ease = t => 1 - Math.pow(1 - t, 4);
   const lerp = (a, b, t) => a + (b - a) * t;
-  const start = performance.now() + 700, DUR = 3200;   // text first, keyboard follows
+  const start = performance.now() + 150, DUR = 2000;   // overlaps the typing
   let yaw = 0, pitch = 0, zoom = 1, panX = 0, panY = 0;
   let tyaw = 0, tpitch = 0, tzoom = 1, tpanX = 0, tpanY = 0;
   const st = new Float32Array(160);
