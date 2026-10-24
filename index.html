@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>poet.blue keyboard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root { --g: #00ff66; --u: 56px; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
@@ -11,6 +17,7 @@
     position: fixed; inset: 0;
     display: flex; align-items: center; justify-content: center;
     perspective: 4000px;
+    touch-action: none; cursor: grab;
   }
   #board {
     position: relative;
@@ -46,7 +53,7 @@
 </head>
 <body>
 <div id="stage"><div id="board"></div></div>
-<div id="hint">PRESS ANY LETTER &rarr; X.POET.BLUE</div>
+<div id="hint">PRESS ANY LETTER &rarr; X.POET.BLUE · DRAG TO ORBIT</div>
 
 <script>
 (() => {
@@ -109,7 +116,7 @@
       if (/^[a-z]$/.test(label)) {
         el.dataset.k = label;
         keyEls[label] = el;
-        el.addEventListener("click", () => go(label));
+        el.addEventListener("click", () => { if (!moved) go(label); });
       }
       board.appendChild(el);
       x += wu * U;
@@ -142,28 +149,66 @@
   const ease = t => 1 - Math.pow(1 - t, 4);
   const lerp = (a, b, t) => a + (b - a) * t;
   const start = performance.now(), DUR = 3200;
-  let mx = 0, my = 0, sx = 0, sy = 0;
-  addEventListener("pointermove", e => {
-    mx = e.clientX / innerWidth - .5;
-    my = e.clientY / innerHeight - .5;
+  // drag / swipe = orbit, wheel / pinch = zoom, shift-drag or two-finger = pan
+  let yaw = 0, pitch = 0, zoom = 1, panX = 0, panY = 0;
+  let tyaw = 0, tpitch = 0, tzoom = 1, tpanX = 0, tpanY = 0;
+  let moved = false;
+  const ptrs = new Map();
+  let pinch = 0;
+  stage.addEventListener("pointerdown", e => {
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    stage.setPointerCapture(e.pointerId);
+    moved = false; pinch = 0;
   });
+  stage.addEventListener("pointermove", e => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (ptrs.size >= 2) {
+      const [a, b] = [...ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch) tzoom = Math.min(3, Math.max(.4, tzoom * d / pinch));
+      pinch = d;
+      tpanX += dx / 2; tpanY += dy / 2;
+      moved = true;
+    } else if (e.shiftKey || e.buttons & 2) {
+      tpanX += dx; tpanY += dy; moved = true;
+    } else {
+      if (Math.abs(dx) + Math.abs(dy) > 0) moved = moved || Math.hypot(dx, dy) > 2;
+      tyaw += dx * .35; tpitch -= dy * .25;
+      tpitch = Math.max(-50, Math.min(35, tpitch));
+    }
+  });
+  const up = e => { ptrs.delete(e.pointerId); pinch = 0; setTimeout(() => { if (!ptrs.size) moved = false; }, 0); };
+  stage.addEventListener("pointerup", up);
+  stage.addEventListener("pointercancel", up);
+  stage.addEventListener("contextmenu", e => e.preventDefault());
+  stage.addEventListener("wheel", e => {
+    e.preventDefault();
+    tzoom = Math.min(3, Math.max(.4, tzoom * Math.exp(-e.deltaY * .001)));
+  }, { passive: false });
+  addEventListener("dblclick", () => { tyaw = tpitch = tpanX = tpanY = 0; tzoom = 1; });
 
   function frame(now) {
     const t = Math.min(1, (now - start) / DUR), k = ease(t);
     const fit = Math.min(1, innerWidth / (totalW + 80)) * Math.min(1, innerHeight / 560);
-    sx += (mx - sx) * .06; sy += (my - sy) * .06;
-    const rx = lerp(0, 52, k) - sy * 8;
-    const rz = lerp(-70, -14, k) + sx * 10;
-    const sc = lerp(.35, 1, k) * fit;
+    const f = .12;
+    yaw += (tyaw - yaw) * f; pitch += (tpitch - pitch) * f; zoom += (tzoom - zoom) * f;
+    panX += (tpanX - panX) * f; panY += (tpanY - panY) * f;
+    const rx = lerp(0, 52, k) + pitch;
+    const rz = lerp(-70, -14, k) + yaw;
+    const sc = lerp(.35, 1, k) * fit * zoom;
     const persp = lerp(260, 1500, k);       // strong wide-angle distortion relaxing into a calm view
     stage.style.perspective = persp + "px";
     board.style.opacity = Math.min(1, t * 3);
     board.style.transform =
-      `translateZ(${lerp(-400, 0, k)}px) scale(${sc}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
+      `translate(${panX}px, ${panY}px) translateZ(${lerp(-400, 0, k)}px) scale(${sc}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 })();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>

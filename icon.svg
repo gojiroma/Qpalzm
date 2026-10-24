@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#000"/>
+<g fill="none" stroke="#00ff66" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+<!-- Famicom body: top face + front face -->
+<path d="M70 200 L130 120 H450 L400 200 Z"/>
+<path d="M70 200 H400 V400 H70 Z"/>
+<path d="M400 200 L450 120 V320 L400 400"/>
+<!-- cartridge slot -->
+<path d="M120 150 H400 M145 170 H380"/>
+<!-- P shaped as the console's face -->
+<path d="M130 370 V230 H260 Q320 230 320 280 Q320 330 260 330 H130"/>
+<path d="M130 230 L165 205 M320 280 L355 255" stroke-width="4"/>
+<!-- controller ports -->
+<rect x="340" y="335" width="40" height="30"/>
+</g>
+</svg>
