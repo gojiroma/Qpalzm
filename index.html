@@ -664,7 +664,7 @@
     const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
     const d = last[1] - prev[1], pct = d / prev[1] * 100, down = d < 0;
     fx.innerHTML =
-      `<div class="dim">USD/JPY ${last[0].slice(5)}</div>` +
+      `<div class="dim">USD/JPY ${last[0].slice(5)}${[0, 6].includes(new Date(Date.now() + 9 * 36e5).getUTCDay()) ? " CLOSED" : ""}</div>` +
       `<div class="big">¥${last[1].toFixed(2)}</div>` +
       `<div class="${down ? "dn" : ""}">${down ? "▼" : "▲"} ${Math.abs(d).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>` +
       `<svg viewBox="0 0 170 46" preserveAspectRatio="none"><polygon points="0,46 ${line} 170,46" fill="rgba(0,255,102,.12)"/>` +
