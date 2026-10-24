@@ -464,9 +464,11 @@
     const arc = (cx, cy, r, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return o; };
     const flush = () => { skyN = V.length / 3; gl.bindBuffer(gl.ARRAY_BUFFER, bSky); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(V), gl.DYNAMIC_DRAW); };
     {   // monthly motif
-      const keep = fade; fade = Math.min(1, Math.max(0, (now - start - 300) / 3000)) * .5;
+      const keep = fade; fade = Math.min(1, Math.max(0, (now - start - 300) / 3000)) * .85;
       const month = +PARAMS.get("m") || new Date(nowMs()).getMonth() + 1;
-      drawMotif(month, W * .5, H * .42, Math.min(W * .42, H * .42), t, poly, arc);
+      // sits in the free band above the keyboard (below the text/calendar corners)
+      if (H > W * 1.1) drawMotif(month, W * .5, H * .27, Math.min(W * .2, H * .1), t, poly, arc);
+      else drawMotif(month, W * .5, H * .17, Math.min(W * .14, H * .095), t, poly, arc);
       fade = keep;
     }
     if (!wx) { flush(); return; }
