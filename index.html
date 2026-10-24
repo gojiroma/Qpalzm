@@ -28,6 +28,17 @@
   #slist mark { background: none; color: #fff; font-weight: 600; }
   #slist .tags, #smeta { color: rgba(0, 255, 102, .5); font-size: 12px; }
   #smeta { margin-top: 4px; }
+  #cal {
+    position: fixed; right: 20px; top: 16px; margin: 0; pointer-events: none; width: 190px;
+    color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none; opacity: 0; transition: opacity 1.2s;
+  }
+  #cal.on { opacity: 1; }
+  #cal .row { display: flex; justify-content: space-between; }
+  #cal .gap { height: 8px; }
+  #cal .bar { height: 7px; border: 1px solid #00ff66; margin: 1px 0 5px; }
+  #cal .bar i { display: block; height: 100%; background: rgba(0, 255, 102, .75); box-shadow: 0 0 6px rgba(0, 255, 102, .7); }
+  @media (max-width: 640px) { #cal { top: auto; bottom: 14px; right: auto; left: 20px; width: 170px; } }
   #tip {
     position: fixed; left: 0; top: 0; max-width: 260px; padding: 8px 10px; opacity: 0;
     pointer-events: none; background: rgba(0, 0, 0, .85); border: 1px solid #00ff66;
@@ -45,6 +56,7 @@
 <body>
 <canvas id="gl"></canvas>
 <pre id="term"></pre>
+<div id="cal"></div>
 <div id="tip"></div>
 <div id="search"><div id="sbox"><label id="sbar"><span>&rsaquo;</span><input id="sq" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="host"></label><div id="slist"></div><div id="smeta"></div></div></div>
 <script>
@@ -286,12 +298,174 @@
     gl.vertexAttribPointer(lk, 1, gl.FLOAT, false, 28, 12);
     gl.vertexAttribPointer(lc, 3, gl.FLOAT, false, 28, 16);
   }
-  function draw() {
+  // ---- weather sky (Open-Meteo, Tokyo): sun/moon on an arc, clouds, rain, snow, fog, lightning ----
+  const PARAMS = new URLSearchParams(location.search);       // ?wx=rain|snow|clear|cloudy|fog|thunder  &at=21.5 (JST hour) for demos
+  const WX_URL = "https://api.open-meteo.com/v1/forecast?latitude=35.6895&longitude=139.6917" +
+    "&current=temperature_2m,weather_code,cloud_cover&daily=sunrise,sunset&timezone=Asia%2FTokyo&forecast_days=2";
+  const clockOffset = PARAMS.has("at") ? (() => {
+    const j = new Date(Date.now() + 9 * 3600e3), cur = j.getUTCHours() + j.getUTCMinutes() / 60;
+    return ((+PARAMS.get("at") - cur) * 3600e3) || 0;
+  })() : 0;
+  const nowMs = () => Date.now() + clockOffset;
+  const jst = s => Date.parse(s + ":00+09:00");
+  function classify(code, cloudPct) {
+    let kind = "clear", inten = 0, label = "CLEAR";
+    if (code === 1) label = "MOSTLY CLEAR"; else if (code === 2) label = "PARTLY CLOUDY"; else if (code === 3) label = "OVERCAST";
+    else if (code === 45 || code === 48) { kind = "fog"; label = "FOG"; }
+    else if (code >= 51 && code <= 57) { kind = "rain"; inten = .25; label = "DRIZZLE"; }
+    else if (code >= 61 && code <= 67) { kind = "rain"; inten = code >= 65 ? 1 : .6; label = code >= 65 ? "HEAVY RAIN" : "RAIN"; }
+    else if (code >= 80 && code <= 82) { kind = "rain"; inten = code === 82 ? 1 : .7; label = "SHOWERS"; }
+    else if ((code >= 71 && code <= 77) || code === 85 || code === 86) { kind = "snow"; inten = code === 75 || code === 86 ? 1 : .5; label = "SNOW"; }
+    else if (code >= 95) { kind = "thunder"; inten = 1; label = "THUNDERSTORM"; }
+    let cloud = cloudPct / 100;
+    if (kind !== "clear" && kind !== "fog") cloud = Math.max(cloud, .7);
+    return { kind, inten, cloud, label };
+  }
+  let wx = null, wxAt = 0;
+  async function loadWx() {
+    try {
+      let d;
+      if (PARAMS.has("wx")) {
+        const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), nd = new Date(Date.now() + 33 * 3600e3).toISOString().slice(0, 10);
+        const m = { clear: [0, 5], cloudy: [3, 90], fog: [45, 60], rain: [63, 100], snow: [73, 100], thunder: [95, 100] }[PARAMS.get("wx")] || [0, 5];
+        d = { current: { temperature_2m: 18.4, weather_code: m[0], cloud_cover: m[1] },
+              daily: { sunrise: [day + "T06:00", nd + "T06:00"], sunset: [day + "T17:00", nd + "T17:00"] } };
+      } else {
+        const r = await fetch(WX_URL); if (!r.ok) throw 0; d = await r.json();
+      }
+      wx = Object.assign(classify(d.current.weather_code, d.current.cloud_cover), {
+        temp: d.current.temperature_2m,
+        riseS: d.daily.sunrise[0].slice(11, 16), setS: d.daily.sunset[0].slice(11, 16),
+        rise: jst(d.daily.sunrise[0]), set: jst(d.daily.sunset[0]), nextRise: jst(d.daily.sunrise[1]),
+      });
+      wxAt = performance.now(); wake();
+    } catch {}
+  }
+  const wxReady = loadWx();
+  setInterval(loadWx, 15 * 60e3);
+
+  const pSky = prog(`attribute vec3 s_p; uniform vec2 u_res; varying float v_a;
+    void main() { gl_Position = vec4(s_p.x / u_res.x * 2. - 1., 1. - s_p.y / u_res.y * 2., 0., 1.); v_a = s_p.z; }`,
+    `precision mediump float; varying float v_a; uniform float u_glow;
+    void main() { vec3 c = vec3(0., 1., .4); gl_FragColor = u_glow > .5 ? vec4(c * v_a, 1.) : vec4(c, v_a); }`);
+  const bSky = gl.createBuffer();
+  let skyN = 0, rain = [], snow = [], bolt = null, boltAt = 0, flash = 0, lastSky = 0;
+  const frac = x => x - Math.floor(x);
+  function buildSky(now) {
+    skyN = 0;
+    if (!wx) return;
+    const dt = Math.min(.05, Math.max(0, (now - lastSky) / 1000)); lastSky = now;
+    const t = now / 1000, fade = Math.min(1, (now - wxAt) / 1500);
+    const V = [];
+    const seg = (x1, y1, x2, y2, a) => { V.push(x1, y1, a * fade, x2, y2, a * fade); };
+    const poly = (p, a, close) => { for (let i = 0; i < p.length - 1; i++) seg(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1], a); if (close) seg(p[p.length - 1][0], p[p.length - 1][1], p[0][0], p[0][1], a); };
+    const arc = (cx, cy, r, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return o; };
+    const tNow = nowMs(), day = tNow >= wx.rise && tNow <= wx.set;
+    let p;
+    if (day) p = (tNow - wx.rise) / (wx.set - wx.rise);
+    else { const prevSet = tNow < wx.rise ? wx.set - 864e5 : wx.set, nextRise = tNow < wx.rise ? wx.rise : wx.nextRise; p = (tNow - prevSet) / (nextRise - prevSet); }
+    p = Math.min(1, Math.max(0, p));
+    const hy = H * .46, bx = W * (.12 + .76 * p), by = hy - Math.sin(Math.PI * p) * H * .36;
+    const R = Math.min(60, Math.max(26, Math.min(W, H) * .07));
+    const bad = wx.kind === "rain" || wx.kind === "thunder" || wx.kind === "snow";
+    const vis = Math.max(.2, 1 - wx.cloud * .8) * (wx.kind === "fog" ? .6 : 1) * (bad ? .5 : 1);
+    // sun / moon
+    if (day) {
+      poly(arc(bx, by, R, 0, Math.PI * 2, 32), .9 * vis, true);
+      poly(arc(bx, by, R * .6, 0, Math.PI * 2, 24), .35 * vis, true);
+      for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6 + t * .12; seg(bx + Math.cos(a) * R * 1.3, by + Math.sin(a) * R * 1.3, bx + Math.cos(a) * R * 1.75, by + Math.sin(a) * R * 1.75, .6 * vis); }
+    } else {
+      const off = R * .55, ri = R * .85, o = arc(bx, by, R, 0, Math.PI * 2, 48), q = arc(bx + off, by - off * .3, ri, 0, Math.PI * 2, 48);
+      for (let i = 0; i < 48; i++) {
+        const m = [(o[i][0] + o[i + 1][0]) / 2, (o[i][1] + o[i + 1][1]) / 2];
+        if (Math.hypot(m[0] - (bx + off), m[1] - (by - off * .3)) >= ri) seg(o[i][0], o[i][1], o[i + 1][0], o[i + 1][1], .9 * vis);
+        const n2 = [(q[i][0] + q[i + 1][0]) / 2, (q[i][1] + q[i + 1][1]) / 2];
+        if (Math.hypot(n2[0] - bx, n2[1] - by) < R) seg(q[i][0], q[i][1], q[i + 1][0], q[i + 1][1], .9 * vis);
+      }
+      const ns = Math.round(46 * (1 - wx.cloud * .8));
+      for (let i = 0; i < ns; i++) {
+        const sx = frac(Math.sin(i * 12.9898) * 43758.5453) * W, sy = frac(Math.sin(i * 78.233) * 12345.678) * H * .42;
+        const a = (.25 + .55 * Math.abs(Math.sin(t * 1.3 + i))) * (bad ? .4 : 1), z = 2 + (i % 3);
+        seg(sx - z, sy, sx + z, sy, a); seg(sx, sy - z, sx, sy + z, a);
+      }
+    }
+    // sunrise / sunset: horizon line + rings radiating from the sun
+    const near = Math.min(Math.abs(tNow - wx.rise), Math.abs(tNow - wx.set)) / 60e3;
+    if (near < 45) {
+      const tw = 1 - near / 45;
+      for (let x = 0; x < W; x += 28) seg(x, hy, x + 14, hy, .45 * tw);
+      for (let k = 0; k < 3; k++) { const ph = frac(t * .18 + k / 3); poly(arc(bx, by, R * (1.8 + ph * 2.2), Math.PI, Math.PI * 2, 32), (1 - ph) * .5 * tw, false); }
+    }
+    // clouds
+    const nc = Math.round(wx.cloud * 5);
+    for (let i = 0; i < nc; i++) {
+      const s = 150 + (i % 3) * 60, cy = H * (.14 + .06 * ((i * 37) % 5)), cx = ((i * .37 * W + t * (8 + i * 3)) % (W + 400)) - 200;
+      const pts = [[cx, cy]];
+      [[.22, .22], [.55, .3], [.85, .17]].forEach(([f, r]) => arc(cx + f * s, cy, r * s, Math.PI, Math.PI * 2, 10).forEach(q => pts.push(q)));
+      pts.push([cx + 1.02 * s, cy]);
+      poly(pts, .55 * Math.min(1, .4 + wx.cloud));
+      seg(cx, cy, cx + 1.02 * s, cy, .55);
+    }
+    // fog
+    if (wx.kind === "fog") for (let i = 0; i < 9; i++) {
+      const y = H * (.3 + .07 * i), sh = (t * (10 + i * 2)) % 60;
+      for (let x = -60; x < W; x += 60) seg(x + sh + (i % 2) * 30, y, x + sh + 40 + (i % 2) * 30, y, .22);
+    }
+    // rain / thunder
+    if (wx.kind === "rain" || wx.kind === "thunder") {
+      const target = Math.round(50 + wx.inten * 190);
+      while (rain.length < target) rain.push({ x: Math.random() * (W + 200) - 100, y: Math.random() * H, v: 700 + Math.random() * 500, l: 12 + Math.random() * 14 });
+      rain.length = target;
+      const slant = .18;
+      for (const d of rain) {
+        d.y += d.v * dt; d.x -= d.v * dt * slant;
+        if (d.y > H + 30) { d.y = -30; d.x = Math.random() * (W + 200) - 100 + H * slant; }
+        seg(d.x, d.y, d.x + d.l * slant, d.y - d.l, .45);
+      }
+    }
+    // snow
+    if (wx.kind === "snow") {
+      const target = Math.round(40 + wx.inten * 90);
+      while (snow.length < target) snow.push({ x: Math.random() * W, y: Math.random() * H, v: 50 + Math.random() * 70, ph: Math.random() * 6.28, z: 2 + Math.random() * 2.5 });
+      snow.length = target;
+      for (const f of snow) {
+        f.y += f.v * dt; if (f.y > H + 10) { f.y = -10; f.x = Math.random() * W; }
+        const x = f.x + Math.sin(t * .8 + f.ph) * 18, z = f.z;
+        seg(x - z, f.y, x + z, f.y, .7); seg(x, f.y - z, x, f.y + z, .7); seg(x - z * .7, f.y - z * .7, x + z * .7, f.y + z * .7, .45); seg(x - z * .7, f.y + z * .7, x + z * .7, f.y - z * .7, .45);
+      }
+    }
+    // lightning
+    if (wx.kind === "thunder") {
+      if (now > boltAt) {
+        boltAt = now + 3500 + Math.random() * 5000;
+        let x = W * (.2 + Math.random() * .6), y = H * .12; bolt = [[x, y]];
+        while (y < H * .6) { x += (Math.random() - .5) * 60; y += 30 + Math.random() * 30; bolt.push([x, y]); }
+        flash = 1;
+      }
+      if (flash > 0) { poly(bolt, Math.min(1, flash * 1.6), false); flash -= dt * 2.5; }
+    }
+    skyN = V.length / 3;
+    gl.bindBuffer(gl.ARRAY_BUFFER, bSky);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(V), gl.DYNAMIC_DRAW);
+  }
+  function drawSky(glow) {
+    if (!skyN) return;
+    gl.useProgram(pSky.p);
+    gl.uniform2f(pSky.u.u_res, W, H); gl.uniform1f(pSky.u.u_glow, glow);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bSky);
+    const l = gl.getAttribLocation(pSky.p, "s_p");
+    gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 3, gl.FLOAT, false, 12, 0);
+    gl.drawArrays(gl.LINES, 0, skyN);
+  }
+
+  function draw(now) {
+    buildSky(now);
     // glow pass (low res)
     gl.bindFramebuffer(gl.FRAMEBUFFER, gFbo);
     gl.viewport(0, 0, gw, gh);
     gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    drawSky(1);
     setCommon(pLine, 1, cam.a); attrs(pLine, bLine);
     gl.drawArrays(gl.LINES, 0, lineData.length / 7);
     // main pass
@@ -306,6 +480,7 @@
     gl.bindTexture(gl.TEXTURE_2D, gTex); gl.uniform1i(pQuad.u.t, 0); gl.uniform1f(pQuad.u.g, 0.55);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    drawSky(0);
     setCommon(pFill, 0, cam.a); attrs(pFill, bTri);
     gl.drawArrays(gl.TRIANGLES, 0, triData.length / 7);
     setCommon(pLine, 0, cam.a); attrs(pLine, bLine);
@@ -322,8 +497,10 @@
     }
     if (Math.abs(tyaw - yaw) + Math.abs(tpitch - pitch) + Math.abs(tpanX - panX) + Math.abs(tpanY - panY) > .02 ||
         Math.abs(tzoom - zoom) > .0005) active = true;
-    draw();
-    if (active) raf = requestAnimationFrame(frame);
+    // weather keeps animating; throttle when nothing else moves
+    const animated = wx && (wx.kind === "rain" || wx.kind === "thunder" || wx.kind === "snow");
+    if (active || now - last >= (animated ? 33 : 100)) { last = now; draw(now); }
+    if (active || wx) raf = requestAnimationFrame(frame);
   }
   function wake() { if (!raf) raf = requestAnimationFrame(frame); }
 
@@ -429,9 +606,41 @@
       lineEls[i].textNode = node;
       await new Promise(r => setTimeout(r, 180));
     }
+    setInterval(() => { lineEls.forEach((el, i) => { if (i && i < lineFns.length) el.textNode.data = lineFns[i](); }); }, 1000);
+    await Promise.race([wxReady, new Promise(r => setTimeout(r, 4000))]);
+    if (wx) {
+      const extra = [`TOKYO ${wx.temp.toFixed(1)}C ${wx.label}`, `SUNRISE ${wx.riseS}  SUNSET ${wx.setS}`];
+      for (const text of extra) {
+        const d = document.createElement("div"), node = document.createTextNode("");
+        term.appendChild(d); d.append(node, cursor);
+        for (const ch of text) { node.data += ch; await new Promise(r => setTimeout(r, 30 + Math.random() * 40)); }
+      }
+    }
     cursor.remove();
-    setInterval(() => { lineEls.forEach((el, i) => { if (i) el.textNode.data = lineFns[i](); }); }, 1000);
   })();
+
+  // ---- calendar countdown + progress bars (local time, week starts Monday) ----
+  const cal = document.getElementById("cal");
+  const DAY = 864e5;
+  function calTick() {
+    const n = new Date(), y = n.getFullYear(), m = n.getMonth();
+    const d0 = new Date(y, m, n.getDate()), dow = (n.getDay() + 6) % 7;
+    const span = (a, b) => (n - a) / (b - a);
+    const nextM = new Date(y, m + 1, 1), nextY = new Date(y + 1, 0, 1);
+    const bars = [
+      ["DAY", span(d0, new Date(y, m, n.getDate() + 1))],
+      ["WEEK", span(new Date(y, m, n.getDate() - dow), new Date(y, m, n.getDate() - dow + 7))],
+      ["MONTH", span(new Date(y, m, 1), nextM)],
+      ["YEAR", span(new Date(y, 0, 1), nextY)],
+    ];
+    const left = t => Math.round((t - d0) / DAY);
+    cal.innerHTML =
+      `<div class="row"><span>NEXT MONTH</span><span>${left(nextM)} DAYS</span></div>` +
+      `<div class="row"><span>NEXT YEAR</span><span>${left(nextY)} DAYS</span></div><div class="gap"></div>` +
+      bars.map(([k, f]) => `<div class="row"><span>${k}</span><span>${(f * 100).toFixed(1)}%</span></div><div class="bar"><i style="width:${(f * 100).toFixed(2)}%"></i></div>`).join("");
+  }
+  calTick(); setInterval(calTick, 1000);
+  setTimeout(() => cal.classList.add("on"), 1200);
 
   // ---- host search (ported from gojiroma/go): "/" opens, one match opens the site ----
   const sEl = document.getElementById("search"), sq = document.getElementById("sq"),
