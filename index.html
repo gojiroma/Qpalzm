@@ -112,15 +112,12 @@
     q: ["#2f6bff", "quotes", "Quote collection under a starry sky."],
     v: ["#ff8a1f", "cb", "Life-log aggregation: statements and records in one place."],
     o: ["#ffe14a", "oneliner", "Copy-paste one-liners, ready to grab."],
-    j: ["#d44fff", "jotd", "Quick notes for when you just need to scribble."],
-    a: ["#ffffff", "ihcimen", "A memo diary with a date-stamped clock."],
     p: ["#ff3b3b", "pw", "Password generator."],
     s: ["#b8c4d8", "reqr", "URL sharing service."],
-    c: ["#c98a4b", "quick", "Bookmark archive."],
     k: ["#e9e4cf", "qk", "Quote screensaver for e-paper devices."],
     "/": ["#00ff66", "search", "Search ~1,500 hosts. Press / anywhere. @tag filters, Esc closes."],
   };
-  const OWNER_ONLY = new Set(["q", "c", "k"]);
+  const OWNER_ONLY = new Set(["q", "k"]);
   const GREEN = [0, 1, .4];
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
 
