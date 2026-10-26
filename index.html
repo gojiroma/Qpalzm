@@ -116,9 +116,10 @@
     s: ["#b8c4d8", "reqr", "URL sharing service."],
     k: ["#e9e4cf", "qk", "Quote screensaver for e-paper devices."],
     w: ["#d44fff", "ime", "Japanese live-conversion input that works in any environment."],
+    y: ["#ff7ab8", "yomikaeshi", "Automatically opens one of your purchased e-books."],
     "/": ["#00ff66", "search", "Search ~1,500 hosts. Press / anywhere. @tag filters, Esc closes."],
   };
-  const OWNER_ONLY = new Set(["q", "k"]);
+  const OWNER_ONLY = new Set(["q", "k", "y"]);
   const GREEN = [0, 1, .4];
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
 
