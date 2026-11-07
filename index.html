@@ -36,15 +36,33 @@
   #fx svg { display: block; width: 100%; height: 46px; margin-top: 4px; overflow: visible; }
   @media (max-width: 640px) { #fx { width: 140px; right: 14px; } #cal { left: 14px; } }
   #qr {
-    position: fixed; left: 20px; bottom: 14px; opacity: 0; transition: opacity 1.2s; pointer-events: none;
-    color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em;
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 1.2s; pointer-events: none;
+    color: #00ff66; font: 14px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .12em; text-align: center;
     text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none;
   }
   #qr.on { opacity: 1; }
-  #qr canvas { display: block; margin-top: 4px; box-shadow: 0 0 10px rgba(0, 255, 102, .45); opacity: .9; }
-  #qr a { color: inherit; pointer-events: auto; display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #qr canvas { display: block; margin: 8px auto; box-shadow: 0 0 24px rgba(0, 255, 102, .45); }
+  #qr a { color: inherit; pointer-events: auto; display: block; max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #qr .dim { opacity: .55; }
-  @media (max-width: 640px) { #qr { bottom: auto; top: 150px; left: 14px; } }
+  #cam {
+    position: fixed; left: 14px; bottom: 8px; width: 44px; height: 44px; padding: 6px; border: 0; background: none; cursor: pointer;
+    color: #00ff66; filter: drop-shadow(0 0 4px rgba(0, 255, 102, .7)); opacity: .8; transition: opacity .2s;
+  }
+  #cam:hover, #cam:focus-visible { opacity: 1; outline: none; }
+  #cam svg { display: block; width: 100%; height: 100%; }
+  @media (max-width: 640px) { #cam { bottom: auto; top: 8px; left: auto; right: 8px; } }
+  #reader {
+    position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .94); overflow: auto;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 56px 16px 24px; box-sizing: border-box;
+    color: #00ff66; font: 13px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em; text-shadow: 0 0 6px rgba(0, 255, 102, .6);
+  }
+  #reader[hidden] { display: none; }
+  #reader video { width: 640px; max-width: 100%; max-height: 60vh; background: #031; border: 1px solid #00ff66; box-shadow: 0 0 12px rgba(0, 255, 102, .35); }
+  #reader ul { width: 640px; max-width: 100%; margin: 0; padding: 0; list-style: none; }
+  #reader li { padding: 6px 0; border-bottom: 1px solid rgba(0, 255, 102, .25); overflow-wrap: anywhere; }
+  #reader li .dim { opacity: .55; }
+  #reader a { color: inherit; }
+  #reader .x { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0; background: none; color: inherit; font: 28px/1 monospace; cursor: pointer; text-shadow: inherit; }
   #term {
     position: fixed; left: 20px; top: 16px; margin: 0; pointer-events: none;
     color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em;
@@ -58,6 +76,8 @@
 <div id="cal"></div>
 <div id="fx"></div>
 <div id="qr"><div class="dim">SCAN TO SEND</div><canvas></canvas><div id="qr-in"></div></div>
+<button id="cam" type="button" aria-label="Read a QR code" title="Read a QR code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 8h3.5l1.8-2.5h7.4L17.5 8H21v11H3z"/><circle cx="12" cy="13" r="3.6"/><path d="M18.5 10.5h.01"/></svg></button>
+<div id="reader" hidden><button class="x" type="button" aria-label="Close">&times;</button><video playsinline muted></video><ul></ul></div>
 <script>
 (() => {
   const canvas = document.getElementById("gl");
@@ -589,7 +609,7 @@
     const text = new URL("scan.html#" + room, location.href).href;
     if (qrShown === text) return;
     const m = qrMatrix(text); if (!m) return;
-    const n = m.length + 8, s = innerWidth <= 640 ? 2 : 3, r = Math.min(window.devicePixelRatio || 1, 2);
+    const n = m.length + 8, s = Math.max(2, Math.floor(Math.min(innerWidth * .8, innerHeight * .6) / n)), r = Math.min(window.devicePixelRatio || 1, 2);
     qrCv.width = qrCv.height = n * s * r; qrCv.style.width = qrCv.style.height = n * s + "px";
     const c = qrCv.getContext("2d");
     c.fillStyle = "#00ff66"; c.fillRect(0, 0, qrCv.width, qrCv.height);
@@ -628,7 +648,69 @@
   const qrTimer = setInterval(qrPoll, 4000);
   document.addEventListener("visibilitychange", qrPoll);
   setTimeout(() => { qrDone = true; clearInterval(qrTimer); qrEl.classList.remove("on"); }, 60e3);   // only the first minute after opening
-  addEventListener("resize", () => { if (room && qrShown) { qrShown = ""; qrDraw(); } });
+  addEventListener("resize", () => { if (room && qrShown && !qrDone) { qrShown = ""; qrDraw(); } });
+
+  // ---- QR reader (was decodeQ): camera button; a URL opens, any other text is copied ----
+  const camBtn = document.getElementById("cam"), reader = document.getElementById("reader");
+  const video = reader.querySelector("video"), hist = reader.querySelector("ul");
+  const rdCv = document.createElement("canvas"), rdCx = rdCv.getContext("2d", { willReadFrequently: true });
+  let stream = null, jsQR = null, lastCode = "", lastAt = 0, rdGen = 0;
+  const loadJsQR = () => jsQR || (jsQR = new Promise((ok, ng) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+    sc.onload = () => ok(window.jsQR); sc.onerror = () => { jsQR = null; ng(new Error("could not load the decoder")); };
+    document.head.appendChild(sc);
+  }));
+  function rdAdd(text, link) {
+    const li = document.createElement("li");
+    if (link) { const a = document.createElement("a"); a.href = text; a.target = "_blank"; a.rel = "noopener"; a.textContent = text; li.appendChild(a); }
+    else li.textContent = text;
+    if (link === false) { const d = document.createElement("span"); d.className = "dim"; d.textContent = "  COPIED"; li.appendChild(d); }
+    hist.prepend(li);
+  }
+  function rdHandle(text) {
+    if (/^https?:\/\//i.test(text)) {
+      rdAdd(text, true);
+      const w = window.open(text, "_blank");     // may be blocked without a recent click; the link stays in the list
+      if (w) w.opener = null;
+    } else {
+      rdAdd(text, false);
+      navigator.clipboard?.writeText(text).catch(() => {});
+    }
+  }
+  function rdScan(decode, gen) {
+    if (!stream || gen !== rdGen) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      const k = Math.min(1, 640 / video.videoWidth);
+      rdCv.width = video.videoWidth * k | 0; rdCv.height = video.videoHeight * k | 0;
+      rdCx.drawImage(video, 0, 0, rdCv.width, rdCv.height);
+      const c = decode(rdCx.getImageData(0, 0, rdCv.width, rdCv.height).data, rdCv.width, rdCv.height);
+      if (c && c.data && (c.data !== lastCode || Date.now() - lastAt > 3000)) { lastCode = c.data; lastAt = Date.now(); rdHandle(c.data); }
+    }
+    setTimeout(() => rdScan(decode, gen), 120);
+  }
+  async function rdOpen() {
+    reader.hidden = false;
+    let s = null;
+    try {
+      s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      const decode = await loadJsQR();
+      if (reader.hidden) throw 0;                // closed while waiting for permission
+      stream = s; video.srcObject = s; video.play().catch(() => {});
+      rdScan(decode, ++rdGen);
+    } catch (e) {
+      if (s && s !== stream) s.getTracks().forEach(t => t.stop());
+      if (e) rdAdd("CAMERA ERROR: " + (e.message || e.name || "unavailable"));
+    }
+  }
+  function rdClose() {
+    reader.hidden = true;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; video.srcObject = null; rdGen++;
+  }
+  camBtn.addEventListener("click", rdOpen);
+  reader.querySelector(".x").addEventListener("click", rdClose);
+  addEventListener("keydown", e => { if (e.key === "Escape" && !reader.hidden) rdClose(); });
 
   resize();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
