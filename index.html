@@ -583,7 +583,7 @@
 
   // ---- QR inbox (was reqr): scan with a phone, the URL it has copied opens here. Needs api/qr (Vercel + Neon) ----
   const qrEl = document.getElementById("qr"), qrCv = qrEl.querySelector("canvas"), qrIn = document.getElementById("qr-in");
-  let room = null, qrBusy = false, qrShown = "";
+  let room = null, qrBusy = false, qrShown = "", qrDone = false;
   try { room = localStorage.getItem("qr-room"); } catch {}
   function qrDraw() {
     const text = new URL("scan.html#" + room, location.href).href;
@@ -607,7 +607,7 @@
     if (w) w.opener = null;
   }
   async function qrPoll() {
-    if (qrBusy || document.hidden) return;
+    if (qrBusy || qrDone || document.hidden) return;
     qrBusy = true;
     try {
       if (!room) {
@@ -620,12 +620,14 @@
       if (r.status === 404 || r.status === 400) { room = null; return; }    // expired: a new QR next tick
       if (!r.ok) throw 0;
       const { url } = await r.json();
-      qrDraw();
+      if (!qrDone) qrDraw();                  // a poll still in flight at the 1-minute mark must not bring it back
       if (url) qrOpen(url);
     } catch {} finally { qrBusy = false; }
   }
-  qrPoll(); setInterval(qrPoll, 4000);
+  qrPoll();
+  const qrTimer = setInterval(qrPoll, 4000);
   document.addEventListener("visibilitychange", qrPoll);
+  setTimeout(() => { qrDone = true; clearInterval(qrTimer); qrEl.classList.remove("on"); }, 60e3);   // only the first minute after opening
   addEventListener("resize", () => { if (room && qrShown) { qrShown = ""; qrDraw(); } });
 
   resize();
