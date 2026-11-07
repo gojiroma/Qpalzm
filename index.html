@@ -44,13 +44,16 @@
   #qr canvas { display: block; margin: 8px auto; box-shadow: 0 0 24px rgba(0, 255, 102, .45); }
   #qr a { color: inherit; pointer-events: auto; display: block; max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #qr .dim { opacity: .55; }
-  #cam {
-    position: fixed; left: 14px; bottom: 8px; width: 44px; height: 44px; padding: 6px; border: 0; background: none; cursor: pointer;
-    color: #00ff66; filter: drop-shadow(0 0 4px rgba(0, 255, 102, .7)); opacity: .8; transition: opacity .2s;
+  #dock {
+    position: fixed; left: 14px; bottom: 8px; display: flex; flex-direction: column; align-items: center;
+    color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em;
   }
-  #cam:hover, #cam:focus-visible { opacity: 1; outline: none; }
+  #dock > * { opacity: .8; transition: opacity .2s; filter: drop-shadow(0 0 4px rgba(0, 255, 102, .7)); }
+  #dock > :hover, #dock > :focus-visible { opacity: 1; outline: none; }
+  #cam { width: 44px; height: 44px; padding: 6px; border: 0; background: none; cursor: pointer; color: inherit; }
   #cam svg { display: block; width: 100%; height: 100%; }
-  @media (max-width: 640px) { #cam { bottom: auto; top: 8px; left: auto; right: 8px; } }
+  #dock a { color: inherit; text-decoration: none; padding: 2px 4px 4px; }
+  @media (max-width: 640px) { #dock { bottom: auto; top: 8px; left: auto; right: 8px; } }
   #reader {
     position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .94); overflow: auto;
     display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 56px 16px 24px; box-sizing: border-box;
@@ -76,7 +79,7 @@
 <div id="cal"></div>
 <div id="fx"></div>
 <div id="qr"><div class="dim">SCAN TO SEND</div><canvas></canvas><div id="qr-in"></div></div>
-<button id="cam" type="button" aria-label="Read a QR code" title="Read a QR code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 8h3.5l1.8-2.5h7.4L17.5 8H21v11H3z"/><circle cx="12" cy="13" r="3.6"/><path d="M18.5 10.5h.01"/></svg></button>
+<div id="dock"><button id="cam" type="button" aria-label="Read a QR code" title="Read a QR code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 8h3.5l1.8-2.5h7.4L17.5 8H21v11H3z"/><circle cx="12" cy="13" r="3.6"/><path d="M18.5 10.5h.01"/></svg></button><a href="https://gist.github.com/gojiroma" target="_blank" rel="noopener">Gists</a></div>
 <div id="reader" hidden><button class="x" type="button" aria-label="Close">&times;</button><video playsinline muted></video><ul></ul></div>
 <script>
 (() => {
