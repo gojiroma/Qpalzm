@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poet.blue send</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  html, body { margin: 0; min-height: 100%; background: #000; }
+  body {
+    min-height: 100dvh; display: grid; place-items: center; padding: 24px; box-sizing: border-box;
+    color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em; text-align: center;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .7);
+  }
+  main { width: 100%; max-width: 420px; }
+  #msg { font-size: 22px; white-space: pre-line; min-height: 3em; overflow-wrap: anywhere; }
+  #msg.bad { color: #ff6a4f; text-shadow: 0 0 6px rgba(255, 106, 79, .6); }
+  button, input {
+    font: inherit; color: inherit; background: transparent; border: 1px solid #00ff66; letter-spacing: inherit;
+    box-shadow: 0 0 8px rgba(0, 255, 102, .35); text-shadow: inherit;
+  }
+  button { display: none; width: 100%; padding: 22px 12px; margin-top: 24px; font-size: 20px; cursor: pointer; }
+  button:active { background: rgba(0, 255, 102, .15); }
+  input { display: none; width: 100%; box-sizing: border-box; padding: 12px; margin-top: 16px; font-size: 16px; outline: none; }
+  .dim { opacity: .55; font-size: 12px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <div id="msg">READING CLIPBOARD…</div>
+  <button id="btn" type="button">PASTE + SEND</button>
+  <input id="txt" type="url" placeholder="https://" autocomplete="off" aria-label="URL">
+  <div class="dim">poet.blue</div>
+</main>
+<script>
+(() => {
+  const room = location.hash.slice(1);
+  const msg = document.getElementById("msg"), btn = document.getElementById("btn"), txt = document.getElementById("txt");
+  let sending = false;
+  const say = (t, bad) => { msg.textContent = t; msg.className = bad ? "bad" : ""; };
+  const isUrl = t => /^https?:\/\/\S+$/i.test(t);
+
+  async function send(url) {
+    if (sending) return;
+    sending = true; say("SENDING…");
+    try {
+      const r = await fetch("api/qr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room, url }) });
+      if (r.ok) { say("✓ SENT\n" + url.replace(/^https?:\/\//i, "")); btn.style.display = txt.style.display = "none"; return; }
+      say(r.status === 404 ? "✗ THIS QR HAS EXPIRED\nRELOAD THE SCREEN AND SCAN AGAIN" : "✗ COULD NOT SEND", true);
+    } catch { say("✗ NO CONNECTION", true); }
+    sending = false; ask();
+  }
+  function ask() { btn.style.display = "block"; txt.style.display = "block"; }
+
+  async function fromClipboard(manual) {
+    try {
+      const t = (await navigator.clipboard.readText()).trim();
+      if (isUrl(t)) return send(t);
+      say(t ? "✗ NOT A LINK\nCOPY A URL STARTING WITH http" : "COPY A LINK FIRST\nTHEN PRESS THE BUTTON", !!t);
+    } catch {
+      say(manual ? "✗ COULD NOT READ THE CLIPBOARD\nPASTE THE LINK BELOW" : "PRESS TO SEND\nTHE LINK YOU COPIED", manual);
+    }
+    ask();
+  }
+
+  btn.addEventListener("click", () => {
+    const t = txt.value.trim();
+    if (isUrl(t)) send(t); else fromClipboard(true);
+  });
+  txt.addEventListener("input", () => { btn.textContent = txt.value.trim() ? "SEND" : "PASTE + SEND"; });
+  txt.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) btn.click(); });
+
+  if (!/^[A-Za-z0-9]{10}$/.test(room)) say("✗ SCAN THE QR ON poet.blue", true);
+  else fromClipboard(false);
+})();
+</script>
+</body>
+</html>

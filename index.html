@@ -35,6 +35,16 @@
   #fx .dim { opacity: .55; }
   #fx svg { display: block; width: 100%; height: 46px; margin-top: 4px; overflow: visible; }
   @media (max-width: 640px) { #fx { width: 140px; right: 14px; } #cal { left: 14px; } }
+  #qr {
+    position: fixed; left: 20px; bottom: 14px; opacity: 0; transition: opacity 1.2s; pointer-events: none;
+    color: #00ff66; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em;
+    text-shadow: 0 0 6px rgba(0, 255, 102, .6); user-select: none;
+  }
+  #qr.on { opacity: 1; }
+  #qr canvas { display: block; margin-top: 4px; box-shadow: 0 0 10px rgba(0, 255, 102, .45); opacity: .9; }
+  #qr a { color: inherit; pointer-events: auto; display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #qr .dim { opacity: .55; }
+  @media (max-width: 640px) { #qr { bottom: auto; top: 150px; left: 14px; } }
   #term {
     position: fixed; left: 20px; top: 16px; margin: 0; pointer-events: none;
     color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em;
@@ -47,6 +57,7 @@
 <pre id="term"></pre>
 <div id="cal"></div>
 <div id="fx"></div>
+<div id="qr"><div class="dim">SCAN TO SEND</div><canvas></canvas><div id="qr-in"></div></div>
 <script>
 (() => {
   const canvas = document.getElementById("gl");
@@ -459,6 +470,163 @@
     } catch {}
   }
   fxLoad(); setInterval(fxLoad, 30 * 60e3);
+
+  // ---- QR encoder (byte mode, ECC M, versions 1-10; no dependencies so it works offline) ----
+  function qrMatrix(text) {
+    const data = Array.from(new TextEncoder().encode(text));
+    // [ec codewords per block, [blocks, data codewords per block]...] for ECC level M
+    const M = [, [10, [1, 16]], [16, [1, 28]], [26, [1, 44]], [18, [2, 32]], [24, [2, 43]], [16, [4, 27]],
+      [18, [4, 31]], [22, [2, 38], [2, 39]], [22, [3, 36], [2, 37]], [26, [4, 43], [1, 44]]];
+    let ver = 1, cap = 0;
+    for (; ver <= 10; ver++) {
+      cap = M[ver].slice(1).reduce((s, [n, k]) => s + n * k, 0);
+      if (4 + (ver < 10 ? 8 : 16) + data.length * 8 <= cap * 8) break;
+    }
+    if (ver > 10) return null;
+    // bit stream: mode 0100, length, bytes, terminator, pad
+    const bits = [];
+    const put = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >>> i) & 1); };
+    put(4, 4); put(data.length, ver < 10 ? 8 : 16); data.forEach(b => put(b, 8));
+    put(0, Math.min(4, cap * 8 - bits.length));
+    while (bits.length % 8) bits.push(0);
+    const cw = [];
+    for (let i = 0; i < bits.length; i += 8) cw.push(parseInt(bits.slice(i, i + 8).join(""), 2));
+    for (let p = 0xEC; cw.length < cap; p ^= 0xEC ^ 0x11) cw.push(p);
+    // Reed-Solomon over GF(256), poly 0x11D
+    const mul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; };
+    const ecN = M[ver][0], div = new Array(ecN).fill(0); div[ecN - 1] = 1;
+    for (let i = 0, r = 1; i < ecN; i++, r = mul(r, 2)) {
+      for (let j = 0; j < ecN; j++) { div[j] = mul(div[j], r); if (j + 1 < ecN) div[j] ^= div[j + 1]; }
+    }
+    const blocks = [], ecs = [];
+    let off = 0;
+    for (const [n, k] of M[ver].slice(1)) for (let b = 0; b < n; b++) {
+      const blk = cw.slice(off, off += k), rem = new Array(ecN).fill(0);
+      for (const v of blk) { const f = v ^ rem.shift(); rem.push(0); div.forEach((d, j) => rem[j] ^= mul(d, f)); }
+      blocks.push(blk); ecs.push(rem);
+    }
+    const out = [];
+    for (let i = 0; i < Math.max(...blocks.map(b => b.length)); i++) blocks.forEach(b => i < b.length && out.push(b[i]));
+    for (let i = 0; i < ecN; i++) ecs.forEach(e => out.push(e[i]));
+    // function patterns
+    const N = ver * 4 + 17;
+    const mod = Array.from({ length: N }, () => new Array(N).fill(false));
+    const fn = Array.from({ length: N }, () => new Array(N).fill(false));
+    const set = (x, y, d) => { mod[y][x] = d; fn[y][x] = true; };
+    for (let i = 0; i < N; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    const finder = (cx, cy) => {
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const x = cx + dx, y = cy + dy, d = Math.max(Math.abs(dx), Math.abs(dy));
+        if (x >= 0 && x < N && y >= 0 && y < N) set(x, y, d !== 2 && d !== 4);
+      }
+    };
+    finder(3, 3); finder(N - 4, 3); finder(3, N - 4);
+    if (ver > 1) {
+      const na = (ver / 7 | 0) + 2, step = Math.ceil((ver * 4 + 4) / (na * 2 - 2)) * 2, pos = [6];
+      for (let p = N - 7; pos.length < na; p -= step) pos.splice(1, 0, p);
+      for (const ay of pos) for (const ax of pos) {
+        if ((ax === 6 && ay === 6) || (ax === 6 && ay === N - 7) || (ax === N - 7 && ay === 6)) continue;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      }
+    }
+    const format = mask => {
+      const v = mask;                              // ECC M = 00
+      let r = v; for (let i = 0; i < 10; i++) r = (r << 1) ^ ((r >>> 9) * 0x537);
+      const b = ((v << 10) | r) ^ 0x5412, bit = i => ((b >>> i) & 1) === 1;
+      for (let i = 0; i <= 5; i++) set(8, i, bit(i));
+      set(8, 7, bit(6)); set(8, 8, bit(7)); set(7, 8, bit(8));
+      for (let i = 9; i < 15; i++) set(14 - i, 8, bit(i));
+      for (let i = 0; i < 8; i++) set(N - 1 - i, 8, bit(i));
+      for (let i = 8; i < 15; i++) set(8, N - 15 + i, bit(i));
+      set(8, N - 8, true);
+    };
+    format(0);
+    if (ver >= 7) {
+      let r = ver; for (let i = 0; i < 12; i++) r = (r << 1) ^ ((r >>> 11) * 0x1F25);
+      const b = (ver << 12) | r;
+      for (let i = 0; i < 18; i++) { const d = ((b >>> i) & 1) === 1, a = N - 11 + i % 3, c = i / 3 | 0; set(a, c, d); set(c, a, d); }
+    }
+    // data, zigzag from bottom-right
+    let k = 0;
+    for (let right = N - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let v = 0; v < N; v++) for (let j = 0; j < 2; j++) {
+        const x = right - j, y = ((right + 1) & 2) === 0 ? N - 1 - v : v;
+        if (!fn[y][x] && k < out.length * 8) { mod[y][x] = ((out[k >>> 3] >>> (7 - (k & 7))) & 1) === 1; k++; }
+      }
+    }
+    // pick the mask with the lowest penalty
+    const masks = [(x, y) => (x + y) % 2, (x, y) => y % 2, (x, y) => x % 3, (x, y) => (x + y) % 3,
+      (x, y) => ((x / 3 | 0) + (y / 2 | 0)) % 2, (x, y) => x * y % 2 + x * y % 3,
+      (x, y) => (x * y % 2 + x * y % 3) % 2, (x, y) => ((x + y) % 2 + x * y % 3) % 2];
+    const apply = m => { for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!fn[y][x] && masks[m](x, y) === 0) mod[y][x] = !mod[y][x]; };
+    const penalty = () => {
+      let p = 0, dark = 0;
+      const lines = [];
+      for (let i = 0; i < N; i++) { lines.push(mod[i]); lines.push(mod.map(r => r[i])); }
+      for (const ln of lines) {
+        for (let i = 0, run = 1; i < N; i++, run++) if (i === N - 1 || ln[i] !== ln[i + 1]) { if (run >= 5) p += run - 2; run = 0; }
+        const s = "0000" + ln.map(Number).join("") + "0000";
+        p += 40 * ((s.match(/(?=00001011101|10111010000)/g) || []).length);
+      }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        dark += mod[y][x];
+        if (x < N - 1 && y < N - 1 && mod[y][x] === mod[y][x + 1] && mod[y][x] === mod[y + 1][x] && mod[y][x] === mod[y + 1][x + 1]) p += 3;
+      }
+      return p + 10 * Math.max(0, Math.ceil(Math.abs(dark * 20 - N * N * 10) / (N * N)) - 1);
+    };
+    let best = 0, bestP = Infinity;
+    for (let m = 0; m < 8; m++) { apply(m); format(m); const p = penalty(); if (p < bestP) { bestP = p; best = m; } apply(m); }
+    apply(best); format(best);
+    return mod;
+  }
+
+  // ---- QR inbox (was reqr): scan with a phone, the URL it has copied opens here. Needs api/qr (Vercel + Neon) ----
+  const qrEl = document.getElementById("qr"), qrCv = qrEl.querySelector("canvas"), qrIn = document.getElementById("qr-in");
+  let room = null, qrBusy = false, qrShown = "";
+  try { room = localStorage.getItem("qr-room"); } catch {}
+  function qrDraw() {
+    const text = new URL("scan.html#" + room, location.href).href;
+    if (qrShown === text) return;
+    const m = qrMatrix(text); if (!m) return;
+    const n = m.length + 8, s = innerWidth <= 640 ? 2 : 3, r = Math.min(window.devicePixelRatio || 1, 2);
+    qrCv.width = qrCv.height = n * s * r; qrCv.style.width = qrCv.style.height = n * s + "px";
+    const c = qrCv.getContext("2d");
+    c.fillStyle = "#00ff66"; c.fillRect(0, 0, qrCv.width, qrCv.height);
+    c.fillStyle = "#000";
+    m.forEach((row, y) => row.forEach((d, x) => d && c.fillRect((x + 4) * s * r, (y + 4) * s * r, s * r, s * r)));
+    qrShown = text; qrEl.classList.add("on");
+  }
+  function qrOpen(url) {
+    if (!/^https?:\/\//i.test(url)) return;
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = "\u25b8 " + (a.hostname || url);
+    qrIn.replaceChildren(a);
+    const w = window.open(url, "_blank");     // a popup blocker may refuse; the link above stays clickable
+    if (w) w.opener = null;
+  }
+  async function qrPoll() {
+    if (qrBusy || document.hidden) return;
+    qrBusy = true;
+    try {
+      if (!room) {
+        const r = await fetch("api/qr", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        if (!r.ok) throw 0;
+        room = (await r.json()).room;
+        try { localStorage.setItem("qr-room", room); } catch {}
+      }
+      const r = await fetch("api/qr?room=" + encodeURIComponent(room), { cache: "no-store" });
+      if (r.status === 404 || r.status === 400) { room = null; return; }    // expired: a new QR next tick
+      if (!r.ok) throw 0;
+      const { url } = await r.json();
+      qrDraw();
+      if (url) qrOpen(url);
+    } catch {} finally { qrBusy = false; }
+  }
+  qrPoll(); setInterval(qrPoll, 4000);
+  document.addEventListener("visibilitychange", qrPoll);
+  addEventListener("resize", () => { if (room && qrShown) { qrShown = ""; qrDraw(); } });
 
   resize();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
