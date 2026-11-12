@@ -732,26 +732,25 @@
   reader.querySelector(".x").addEventListener("click", rdClose);
   addEventListener("keydown", e => { if (e.key === "Escape" && !reader.hidden) rdClose(); });
 
-  // ---- web search: a visible box, "/" focuses it, Enter searches Google,
-  // Lucky jumps via Google's btnI=1 (same destinations the restored box used
-  // for Japanese queries / no host match) ----
+  // ---- search: a visible box, "/" focuses it; the only action is
+  // I'm Feeling Lucky (Google btnI=1) — Enter and the button both go there,
+  // there is no plain results-page search ----
   const sForm = document.getElementById("search"), sq = document.getElementById("sq"),
         luckyBtn = document.getElementById("lucky");
-  const googleSearch = q => "https://www.google.com/search?q=" + encodeURIComponent(q);
   const googleLucky = q => "https://www.google.com/search?btnI=1&q=" + encodeURIComponent(q);
+  const goLucky = () => {
+    const q = sq.value.trim();
+    if (!q) { sq.focus(); return; }
+    location.assign(googleLucky(q));
+  };
   sForm.addEventListener("submit", e => {
     e.preventDefault();
-    const q = sq.value.trim();
-    if (q) location.assign(googleSearch(q));
+    goLucky();
   });
   sq.addEventListener("keydown", e => {
     if (e.key === "Escape") { if (sq.value) sq.value = ""; else sq.blur(); }
   });
-  luckyBtn.addEventListener("click", () => {
-    const q = sq.value.trim();
-    if (!q) { sq.focus(); return; }
-    location.assign(googleLucky(q));
-  });
+  luckyBtn.addEventListener("click", goLucky);
   addEventListener("keydown", e => {
     if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement !== sq && !/INPUT|TEXTAREA/.test((e.target.tagName || "")) && reader.hidden) {
       e.preventDefault(); sq.focus();
