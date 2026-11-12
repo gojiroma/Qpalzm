@@ -71,11 +71,38 @@
     color: #00ff66; font: 16px/1.5 "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em;
     text-shadow: 0 0 6px rgba(0, 255, 102, .7); white-space: pre; user-select: none;
   }
+  #search {
+    position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 5;
+    width: min(600px, calc(100% - 440px)); min-width: 300px;
+    background: rgba(0, 0, 0, .88); border: 1px solid #00ff66; box-shadow: 0 0 14px rgba(0, 255, 102, .3);
+    color: #00ff66; font: 14px/1.5 "SF Mono", Menlo, Consolas, monospace; padding: 8px 10px;
+  }
+  #sbar { display: flex; gap: 8px; align-items: center; }
+  #sq { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #00ff66; font: inherit; font-size: 16px; caret-color: #00ff66; }
+  #sq::placeholder { color: rgba(0, 255, 102, .45); }
+  #lucky {
+    flex: none; background: none; border: 1px solid rgba(0, 255, 102, .6); color: #00ff66;
+    font: inherit; font-size: 12px; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+  }
+  #lucky:hover, #lucky:focus-visible { background: rgba(0, 255, 102, .18); outline: none; }
+  #sdrop { display: none; }
+  #search.open #sdrop { display: block; }
+  #slist { margin-top: 6px; max-height: 46vh; overflow: auto; border-top: 1px solid rgba(0, 255, 102, .4); padding-top: 4px; }
+  #slist:empty { display: none; }
+  #slist a, #slist div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 6px; color: #00ff66; text-decoration: none; cursor: pointer; }
+  #slist .active, #slist a:hover, #slist div:hover { background: rgba(0, 255, 102, .18); }
+  #slist mark { background: none; color: #fff; font-weight: 600; }
+  #slist .tags, #smeta { color: rgba(0, 255, 102, .5); font-size: 12px; }
+  #smeta { margin-top: 4px; }
+  #smeta:empty { display: none; }
+  @media (max-width: 900px) { #search { width: min(600px, calc(100% - 32px)); } }
+  @media (max-width: 640px) { #search { top: 100px; } #lucky { font-size: 11px; padding: 3px 6px; } }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <pre id="term"></pre>
+<form id="search" role="search" autocomplete="off"><div id="sbar"><span aria-hidden="true">&rsaquo;</span><input id="sq" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search hosts" placeholder="Search hosts — @tag filters"><button id="lucky" type="button" title="Go straight to the top match">I'm Feeling Lucky</button></div><div id="sdrop"><div id="slist"></div><div id="smeta"></div></div></form>
 <div id="cal"></div>
 <div id="fx"></div>
 <div id="qr"><div class="dim">SCAN TO SEND</div><canvas></canvas><div id="qr-in"></div></div>
@@ -714,6 +741,103 @@
   camBtn.addEventListener("click", rdOpen);
   reader.querySelector(".x").addEventListener("click", rdClose);
   addEventListener("keydown", e => { if (e.key === "Escape" && !reader.hidden) rdClose(); });
+
+  // ---- host search (restored; was removed with the keyboard): a visible box,
+  // "/" focuses it, Enter opens the active match, Lucky jumps to the top match ----
+  const sForm = document.getElementById("search"), sq = document.getElementById("sq"),
+        sList = document.getElementById("slist"), sMeta = document.getElementById("smeta"),
+        luckyBtn = document.getElementById("lucky");
+  let hosts = null, sugs = [], tagCount = null, shown = [], act = 0, loading = null;
+  const escS = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const hiName = (name, t) => { if (!t) return escS(name); const i = name.toLowerCase().indexOf(t);
+    return i < 0 ? escS(name) : escS(name.slice(0, i)) + "<mark>" + escS(name.slice(i, i + t.length)) + "</mark>" + escS(name.slice(i + t.length)); };
+  const isJP = s => /[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]/.test(s);
+  const googleLucky = q => "https://www.google.com/search?btnI=1&q=" + encodeURIComponent(q);
+  function loadHosts() {
+    if (hosts) return Promise.resolve();
+    return loading || (loading = new Promise(res => {
+      const sc = document.createElement("script");
+      sc.src = "hosts.js"; sc.onload = () => { hosts = window.GO_HOSTS; res(); };
+      sc.onerror = () => { loading = null; sMeta.textContent = "failed to load hosts"; res(); };
+      document.head.appendChild(sc);
+    }));
+  }
+  function sRender() {
+    if (!sq.value.trim()) {
+      shown = []; sugs = []; sList.innerHTML = "";
+      sMeta.textContent = hosts ? `${hosts.length} hosts — Enter opens the top match, Lucky jumps straight there. @tag filters.` : "loading...";
+      return;
+    }
+    if (!hosts) { sList.innerHTML = ""; sMeta.textContent = "loading..."; return; }
+    if (!tagCount) { tagCount = {}; hosts.forEach(h => h.tags.forEach(t => { tagCount[t] = (tagCount[t] || 0) + 1; })); }
+    const v = sq.value, m = /(?:^|\s)@([^\s@]*)$/.exec(v);   // last token is a half-typed @tag
+    sugs = [];
+    if (m) {
+      const part = m[1].toLowerCase();
+      const hit = Object.keys(tagCount).filter(t => t.startsWith(part)).sort((a, b) => tagCount[b] - tagCount[a] || a.localeCompare(b));
+      if (!(hit.length === 1 && hit[0] === part)) sugs = hit;
+    }
+    if (sugs.length) {
+      act = Math.min(act, sugs.length - 1);
+      sList.innerHTML = sugs.map((t, i) => `<div data-tag="${escS(t)}" class="${i === act ? "active" : ""}"><span>@${escS(t)}</span><span class="tags">${tagCount[t]}</span></div>`).join("");
+      sMeta.textContent = `${sugs.length} tags — Tab / Enter to pick`;
+      shown = [];
+      const el0 = sList.children[act]; if (el0 && el0.scrollIntoView) el0.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const words = sq.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const t = words.filter(w => w[0] !== "@").join(" ");
+    const tagHit = (h, g) => h.tags.some(x => x.startsWith(g));
+    shown = hosts.filter(h => words.every(w => w[0] === "@" ? tagHit(h, w.slice(1)) : (h.key.includes(w) || tagHit(h, w))));
+    if (t) {   // rank prefix / substring name hits first, so index 0 is the Lucky target
+      const rank = h => { const n = h.name.toLowerCase(); return n.startsWith(t) ? 0 : (n.includes(t) ? 1 : 2); };
+      shown.sort((a, b) => rank(a) - rank(b) || a.name.length - b.name.length);
+    }
+    act = Math.min(act, Math.max(0, shown.length - 1));
+    const LIM = 40;
+    sList.innerHTML = shown.slice(0, LIM).map((h, i) =>
+      `<a href="${escS(h.to)}" target="_blank" rel="noopener" data-i="${i}" class="${i === act ? "active" : ""}"><span>${hiName(h.name, t)}</span>` +
+      (h.tags.length ? `<span class="tags">${h.tags.map(x => "@" + x).join(" ")}</span>` : "") + "</a>").join("");
+    sMeta.textContent = shown.length > LIM ? `${LIM} / ${shown.length}` : `${shown.length} / ${hosts.length}`;
+    const el = sList.children[act]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }
+  function openHost(h) {   // normal open: new tab, as before
+    let w = null; try { w = window.open(h.to, "_blank"); } catch {}
+    if (w) { try { w.opener = null; } catch {} }
+  }
+  function lucky() {   // I'm Feeling Lucky: straight to the top match, same tab
+    const q = sq.value.trim();
+    if (!q) { sq.focus(); return; }
+    if (isJP(q)) { location.assign(googleLucky(q)); return; }
+    loadHosts().then(() => { sRender(); location.assign(shown.length ? shown[0].to : googleLucky(q)); });
+  }
+  function pickTag(t) { sq.value = sq.value.replace(/@[^\s@]*$/, "@" + t + " "); act = 0; sRender(); sq.focus(); }
+  sForm.addEventListener("submit", e => e.preventDefault());
+  sq.addEventListener("focus", () => { sForm.classList.add("open"); loadHosts().then(sRender); });
+  sq.addEventListener("input", () => { act = 0; sForm.classList.add("open"); loadHosts().then(sRender); sRender(); });
+  sq.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); act = Math.min(act + 1, (sugs.length || Math.min(shown.length, 40)) - 1); sRender(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); act = Math.max(act - 1, 0); sRender(); }
+    else if ((e.key === "Tab" || e.key === "Enter") && sugs.length && !e.isComposing) { e.preventDefault(); pickTag(sugs[act]); }
+    else if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      if (isJP(sq.value)) location.assign(googleLucky(sq.value.trim()));
+      else if (shown[act]) openHost(shown[act]);
+    }
+    else if (e.key === "Escape") { if (sq.value) { sq.value = ""; sRender(); } else { sForm.classList.remove("open"); sq.blur(); } }
+  });
+  luckyBtn.addEventListener("click", lucky);
+  sList.addEventListener("click", e => {
+    const d = e.target.closest("[data-tag]");
+    if (d) { pickTag(d.dataset.tag); return; }
+    if (e.target.closest("a")) setTimeout(() => { sq.value = ""; sRender(); sq.focus(); }, 0);
+  });
+  document.addEventListener("pointerdown", e => { if (!sForm.contains(e.target)) sForm.classList.remove("open"); });
+  addEventListener("keydown", e => {
+    if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement !== sq && !/INPUT|TEXTAREA/.test((e.target.tagName || "")) && reader.hidden) {
+      e.preventDefault(); sq.focus();
+    }
+  });
 
   resize();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
